@@ -1,4 +1,4 @@
-// contexts/AuthContext.tsx - FIXED VERSION (No Infinite Loops)
+// contexts/AuthContext.tsx - FIXED VERSION (Proper No Session Handling)
 "use client"
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
@@ -7,6 +7,7 @@ import {
   onAuthStateChange, 
   logout as supabaseLogout,
   clearUserCache,
+  isSessionValid,
   type AppUser 
 } from '@/lib/auth-supabase'
 
@@ -65,6 +66,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true
     let processingAuthChange = false
 
+    const initializeAuth = async () => {
+      try {
+        // First, check if there's a valid session
+        const sessionValid = await isSessionValid()
+        console.log('Session valid:', sessionValid)
+
+        if (!sessionValid) {
+          console.log('No valid session found, marking as initialized')
+          if (mounted) {
+            setUser(null)
+            setError(null)
+            setIsInitialized(true)
+            setIsLoading(false)
+          }
+          return
+        }
+
+        // If session exists, try to get current user
+        const currentUser = await getCurrentUser()
+        console.log('Current user from session:', currentUser?.email || 'none')
+
+        if (mounted) {
+          setUser(currentUser)
+          setError(null)
+          setIsInitialized(true)
+          setIsLoading(false)
+        }
+      } catch (error) {
+        console.error('Error during auth initialization:', error)
+        if (mounted) {
+          setUser(null)
+          setError('Failed to initialize authentication')
+          setIsInitialized(true)
+          setIsLoading(false)
+        }
+      }
+    }
+
     const handleAuthChange = async (newUser: AppUser | null) => {
       // Prevent processing if unmounted, already processing, or duplicate
       if (!mounted || processingAuthChange || processingRef.current) return
@@ -87,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(newUser)
         setError(null)
         
-        // Mark as initialized only after first auth state change
+        // Mark as initialized after first auth state change
         if (!isInitialized) {
           setIsInitialized(true)
         }
@@ -95,11 +134,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         console.error('Error in auth state change handler:', err)
         setError('Auth state change failed')
+        setIsLoading(false)
       } finally {
         processingAuthChange = false
         processingRef.current = false
       }
     }
+
+    // Start initialization
+    initializeAuth()
 
     // Set up auth listener
     const { data: authListener } = onAuthStateChange(handleAuthChange)

@@ -1,16 +1,16 @@
-// components/layout/dashboard-layout.tsx - Fixed Dashboard Layout
+// components/layout/dashboard-layout.tsx - FIXED VERSION
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
-import { getCurrentUser } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { AuthGuard } from "../auth-guard"
 import { Loader2, AlertTriangle } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/contexts/AuthContext" // Use AuthContext instead
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -24,10 +24,10 @@ export function DashboardLayout({
   pageTitle = "Dashboard"
 }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [user, setUser] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
+  
+  // Use AuthContext instead of calling getCurrentUser directly
+  const { user, isLoading, isInitialized, error: authError } = useAuth()
 
   // Memoize allowed roles to prevent recreation
   const memoizedAllowedRoles = useMemo(() => allowedRoles, [allowedRoles])
@@ -52,52 +52,6 @@ export function DashboardLayout({
   const redirectToUserDashboard = useCallback((userRole: string) => {
     router.push(`/dashboard/${userRole}`)
   }, [router])
-
-  useEffect(() => {
-    let isMounted = true
-
-    const initializeUser = async () => {
-      try {
-        setIsLoading(true)
-        setError(null)
-
-        const currentUser = getCurrentUser()
-        
-        if (!isMounted) return
-
-        if (!currentUser) {
-          setError("No user session found")
-          setTimeout(() => redirectToAuth(), 2000)
-          return
-        }
-
-        // Check if user role is allowed
-        if (memoizedAllowedRoles.length > 0 && !memoizedAllowedRoles.includes(currentUser.role)) {
-          setError(`Access denied. Required roles: ${memoizedAllowedRoles.join(", ")}`)
-          setTimeout(() => redirectToUserDashboard(currentUser.role), 2000)
-          return
-        }
-
-        setUser(currentUser)
-      } catch (err) {
-        console.error("Dashboard initialization error:", err)
-        if (isMounted) {
-          setError("Failed to initialize dashboard")
-          setTimeout(() => redirectToAuth(), 2000)
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    initializeUser()
-
-    return () => {
-      isMounted = false
-    }
-  }, [memoizedAllowedRoles, redirectToAuth, redirectToUserDashboard])
 
   // Memoize loading component
   const loadingComponent = useMemo(() => (
@@ -124,7 +78,7 @@ export function DashboardLayout({
           </div>
           <CardTitle className="text-xl text-red-700">Dashboard Error</CardTitle>
           <CardDescription className="text-red-600">
-            {error}
+            {authError}
           </CardDescription>
         </CardHeader>
         <CardContent className="text-center space-y-4">
@@ -149,7 +103,7 @@ export function DashboardLayout({
         </CardContent>
       </Card>
     </div>
-  ), [error, redirectToAuth, redirectToHome])
+  ), [authError, redirectToAuth, redirectToHome])
 
   // Memoize no user component
   const noUserComponent = useMemo(() => (
@@ -164,22 +118,66 @@ export function DashboardLayout({
     </div>
   ), [redirectToAuth])
 
-  // Loading state
+  // Wait for auth to initialize
+  if (!isInitialized) {
+    return loadingComponent
+  }
+
+  // Loading state (when auth is checking session)
   if (isLoading) {
     return loadingComponent
   }
 
-  // Error state
-  if (error) {
+  // Auth error state
+  if (authError) {
     return errorComponent
   }
 
-  // No user state
+  // No user state (not authenticated)
   if (!user) {
     return noUserComponent
   }
 
-  // Main dashboard layout
+  // Check if user role is allowed
+  if (memoizedAllowedRoles.length > 0 && !memoizedAllowedRoles.includes(user.role)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-yellow-100 p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center space-y-4">
+            <div className="w-16 h-16 bg-orange-600 rounded-full flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-8 w-8 text-white" />
+            </div>
+            <CardTitle className="text-xl text-orange-700">Access Denied</CardTitle>
+            <CardDescription className="text-orange-600">
+              Required roles: {memoizedAllowedRoles.join(", ")}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-gray-600">
+              Your current role ({user.role}) doesn't have access to this page.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button 
+                onClick={() => redirectToUserDashboard(user.role)}
+                className="w-full"
+              >
+                Go to My Dashboard
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={redirectToHome}
+                className="w-full"
+              >
+                Go to Home
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Main dashboard layout - user is authenticated and authorized
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Mobile sidebar overlay */}

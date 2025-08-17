@@ -1,4 +1,4 @@
-// app/auth/page.tsx - FIXED Authentication Page (No Redirect Loops)
+// app/auth/page.tsx - FIXED Authentication Page
 "use client"
 
 import { Button } from "@/components/ui/button"
@@ -19,22 +19,36 @@ export default function AuthPage() {
   const router = useRouter()
   const { toast } = useToast()
   
-  // Use auth context instead of direct checks
+  // Use auth context
   const { user, isLoading: authLoading, isInitialized } = useAuth()
   
   // Prevent multiple redirects
   const hasRedirected = useRef(false)
 
-  // Check if user is already logged in - using auth context
+  // Check if user is already logged in
   useEffect(() => {
     // Wait for auth to initialize
-    if (!isInitialized || authLoading) return
+    if (!isInitialized) {
+      console.log('Auth not initialized yet, waiting...')
+      return
+    }
+    
+    if (authLoading) {
+      console.log('Auth still loading, waiting...')
+      return
+    }
     
     // Redirect if user is already logged in
     if (user && !hasRedirected.current) {
-      console.log('User already logged in, redirecting to dashboard')
+      console.log('User already logged in, redirecting to dashboard:', user.role)
       hasRedirected.current = true
       router.replace(`/dashboard/${user.role}`)
+      return
+    }
+
+    // If no user and auth is initialized, we can show the login form
+    if (!user && isInitialized && !authLoading) {
+      console.log('No user found, showing login form')
     }
   }, [user, isInitialized, authLoading, router])
 
@@ -77,22 +91,33 @@ export default function AuthPage() {
   }
 
   // Show loading while auth is initializing
-  if (!isInitialized || authLoading) {
+  if (!isInitialized) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <Card className="shadow-xl">
           <CardContent className="p-8 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-            <p className="text-gray-600">Checking your session...</p>
+            <p className="text-gray-600">Initializing authentication...</p>
           </CardContent>
         </Card>
       </div>
     )
   }
 
-  // Don't render if already redirecting
-  if (hasRedirected.current) {
-    return null
+  // Show loading while checking session or redirecting
+  if (authLoading || hasRedirected.current) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <Card className="shadow-xl">
+          <CardContent className="p-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-gray-600">
+              {hasRedirected.current ? 'Redirecting to dashboard...' : 'Checking your session...'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

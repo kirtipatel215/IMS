@@ -1,4 +1,4 @@
-// lib/auth-supabase.ts - OPTIMIZED Authentication System
+// lib/auth-supabase.ts - COMPLETELY FIXED VERSION
 import { supabase } from './supabase'
 import type { User } from '@supabase/supabase-js'
 
@@ -17,79 +17,163 @@ export interface AppUser {
   isActive?: boolean
 }
 
-// Enhanced cache management
+// ===================
+// CACHING SYSTEM
+// ===================
 let currentUserCache: AppUser | null = null
-let cacheTimestamp: number = 0
+let cacheTimestamp = 0
 const CACHE_DURATION = 60000 // 1 minute
-
-// Prevent multiple simultaneous getCurrentUser calls
 let getCurrentUserPromise: Promise<AppUser | null> | null = null
 
-// Rate limiting for auth state changes
-let lastAuthStateChange: number = 0
-const AUTH_STATE_COOLDOWN = 500 // 500ms cooldown between auth state changes
+export const clearUserCache = () => {
+  console.log('🗑️ Clearing user cache')
+  currentUserCache = null
+  cacheTimestamp = 0
+  getCurrentUserPromise = null
+}
 
-// Get current authenticated user from Supabase with database profile
+// ===================
+// USER PROFILE MANAGEMENT
+// ===================
+const createUserProfile = async (user: User): Promise<AppUser | null> => {
+  try {
+    if (!user.id || !user.email) {
+      console.error('❌ Missing user ID or email')
+      return null
+    }
+
+    const role = getUserRole(user.email)
+    if (!role) {
+      console.error('❌ Invalid email domain:', user.email)
+      return null
+    }
+
+    const name = user.user_metadata?.full_name || getNameFromEmail(user.email)
+    const additionalData = extractUserData(user.email, role)
+
+    // Check if user already exists
+    console.log('🔍 Checking if user exists in database...')
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+
+    if (existingUser) {
+      console.log('✅ User already exists, returning existing profile')
+      return mapDatabaseUserToAppUser(existingUser)
+    }
+
+    // Create new user profile
+    console.log('👤 Creating new user profile for:', user.email)
+    const { data: newUser, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        id: user.id,
+        email: user.email,
+        name,
+        role,
+        avatar_url: user.user_metadata?.avatar_url || null,
+        department: additionalData.department || null,
+        designation: additionalData.designation || null,
+        employee_id: additionalData.employeeId || null,
+        roll_number: additionalData.rollNumber || null,
+        phone: null,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('❌ Error creating user profile:', insertError)
+      if (insertError.code === '23505') {
+        // Duplicate key, fetch existing
+        const { data } = await supabase.from('users').select('*').eq('id', user.id).single()
+        return data ? mapDatabaseUserToAppUser(data) : null
+      }
+      return null
+    }
+
+    if (!newUser) {
+      console.error('❌ No user data returned after insert')
+      return null
+    }
+
+    console.log('✅ Successfully created new user profile')
+    return mapDatabaseUserToAppUser(newUser)
+
+  } catch (error) {
+    console.error('❌ Error in createUserProfile:', error)
+    return null
+  }
+}
+
+const mapDatabaseUserToAppUser = (dbUser: any): AppUser => {
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name,
+    role: dbUser.role,
+    loginTime: new Date().toISOString(),
+    department: dbUser.department || '',
+    designation: dbUser.designation || '',
+    employeeId: dbUser.employee_id || '',
+    phone: dbUser.phone || '',
+    rollNumber: dbUser.roll_number || '',
+    avatarUrl: dbUser.avatar_url || '',
+    isActive: dbUser.is_active
+  }
+}
+
+// ===================
+// GET CURRENT USER - SINGLE SOURCE OF TRUTH
+// ===================
 export const getCurrentUser = async (): Promise<AppUser | null> => {
-  // Return existing promise if already fetching
+  // Return cached user if valid
+  if (currentUserCache && Date.now() - cacheTimestamp < CACHE_DURATION) {
+    return currentUserCache
+  }
+
+  // Return existing promise to prevent multiple requests
   if (getCurrentUserPromise) {
     return getCurrentUserPromise
   }
 
-  // Return cached user if available and not expired
-  if (currentUserCache && (Date.now() - cacheTimestamp) < CACHE_DURATION) {
-    return currentUserCache
-  }
-
   getCurrentUserPromise = (async () => {
     try {
+      console.log('🔐 Getting current user from Supabase...')
+      
+      // Get authenticated user
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       
       if (authError) {
-        console.error('Auth error:', authError)
+        console.error('❌ Auth error:', authError)
         currentUserCache = null
         return null
       }
 
       if (!user) {
+        console.log('ℹ️ No authenticated user found')
         currentUserCache = null
         return null
       }
 
-      // Get additional user data from our users table with timeout
-      const userDataPromise = supabase
+      console.log('👤 Found authenticated user:', user.email)
+
+      // Fetch user profile from database
+      const { data: userData, error: userError } = await supabase
         .from('users')
-        .select(`
-          id,
-          email,
-          name,
-          role,
-          department,
-          designation,
-          employee_id,
-          phone,
-          roll_number,
-          avatar_url,
-          is_active
-        `)
+        .select('*')
         .eq('id', user.id)
         .single()
 
-      // Add timeout to prevent hanging requests
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('User data fetch timeout')), 10000)
-      )
-
-      const { data: userData, error: userError } = await Promise.race([
-        userDataPromise,
-        timeoutPromise
-      ]) as any
-
-      if (userError) {
-        console.error('Error fetching user profile:', userError)
-        // If no profile exists, create one
-        if (userError.code === 'PGRST116') {
-          const newProfile = await createUserProfile(user)
+      if (userError || !userData) {
+        console.log('⚠️ User not found in database, creating profile...')
+        // Create user profile if doesn't exist
+        const newProfile = await createUserProfile(user)
+        if (newProfile) {
           currentUserCache = newProfile
           cacheTimestamp = Date.now()
           return newProfile
@@ -99,33 +183,20 @@ export const getCurrentUser = async (): Promise<AppUser | null> => {
       }
 
       if (!userData.is_active) {
-        console.log('User account is inactive')
+        console.warn('⚠️ User account is inactive')
         currentUserCache = null
         return null
       }
 
-      const appUser: AppUser = {
-        id: user.id,
-        email: user.email!,
-        name: userData.name,
-        role: userData.role,
-        loginTime: new Date().toISOString(),
-        department: userData.department,
-        designation: userData.designation,
-        employeeId: userData.employee_id,
-        phone: userData.phone,
-        rollNumber: userData.roll_number,
-        avatarUrl: userData.avatar_url || user.user_metadata?.avatar_url,
-        isActive: userData.is_active
-      }
-
-      // Cache the user
+      const appUser = mapDatabaseUserToAppUser(userData)
       currentUserCache = appUser
       cacheTimestamp = Date.now()
       
+      console.log('✅ Successfully loaded user profile:', appUser.email)
       return appUser
+
     } catch (error) {
-      console.error('Error getting current user:', error)
+      console.error('❌ getCurrentUser error:', error)
       currentUserCache = null
       return null
     } finally {
@@ -136,227 +207,169 @@ export const getCurrentUser = async (): Promise<AppUser | null> => {
   return getCurrentUserPromise
 }
 
-// Clear user cache
-export const clearUserCache = () => {
-  currentUserCache = null
-  cacheTimestamp = 0
-  getCurrentUserPromise = null
-}
-
-// Create user profile in database
-const createUserProfile = async (user: User): Promise<AppUser | null> => {
+// ===================
+// AUTHENTICATION METHODS
+// ===================
+export const signInWithGoogle = async () => {
   try {
-    const role = getUserRole(user.email!)
-    if (!role) {
-      throw new Error('Invalid email domain')
-    }
-
-    const name = user.user_metadata?.full_name || getNameFromEmail(user.email!)
+    console.log('🔗 Initiating Google OAuth...')
     
-    // Extract additional info based on role
-    const additionalData = extractUserData(user.email!, role)
-
-    const { data, error } = await supabase
-      .from('users')
-      .insert({
-        id: user.id,
-        email: user.email!,
-        name,
-        role,
-        avatar_url: user.user_metadata?.avatar_url,
-        department: additionalData.department,
-        roll_number: additionalData.rollNumber,
-        employee_id: additionalData.employeeId,
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error creating user profile:', error)
-      return null
-    }
-
-    return {
-      id: user.id,
-      email: user.email!,
-      name,
-      role: role as any,
-      loginTime: new Date().toISOString(),
-      department: additionalData.department,
-      rollNumber: additionalData.rollNumber,
-      employeeId: additionalData.employeeId,
-      avatarUrl: user.user_metadata?.avatar_url,
-      isActive: true
-    }
-  } catch (error) {
-    console.error('Error creating user profile:', error)
-    return null
-  }
-}
-
-// Sign in with Google OAuth
-export const signInWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
-  try {
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
+        queryParams: { 
+          access_type: 'offline', 
+          prompt: 'consent' 
         },
         scopes: 'openid email profile'
       }
     })
 
     if (error) {
-      console.error('Google sign in error:', error)
+      console.error('❌ Google OAuth error:', error)
       return { success: false, error: error.message }
     }
 
     return { success: true }
   } catch (error: any) {
-    console.error('Google sign in error:', error)
-    return { success: false, error: 'An unexpected error occurred during sign in' }
+    console.error('❌ Google sign-in error:', error)
+    return { success: false, error: error.message }
   }
 }
 
-// Handle auth callback after OAuth
-export const handleAuthCallback = async (): Promise<{ success: boolean; user?: AppUser; error?: string }> => {
+export const handleAuthCallback = async () => {
   try {
-    // Clear any existing cache
+    console.log('🔄 Handling auth callback...')
     clearUserCache()
     
-    // Wait a bit for the session to be established
+    // Wait for session to be properly set
     await new Promise(resolve => setTimeout(resolve, 1000))
 
-    // Get the current session
-    const { data: { session }, error } = await supabase.auth.getSession()
-
-    if (error) {
-      console.error('Session error:', error)
-      return { success: false, error: error.message }
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    
+    if (sessionError) {
+      console.error('❌ Session error:', sessionError)
+      return { success: false, error: "Session error: " + sessionError.message }
     }
 
     if (!session?.user) {
-      return { success: false, error: 'No session found' }
+      console.error('❌ No session or user found')
+      return { success: false, error: "No session found" }
     }
 
     const user = session.user
+    console.log('👤 Found user in session:', user.email)
 
-    // Validate email domain
+    // Validate institutional email
     if (!isValidInstitutionalEmail(user.email!)) {
+      console.error('❌ Invalid institutional email:', user.email)
       await supabase.auth.signOut()
-      return { 
-        success: false, 
-        error: 'Invalid email domain. Please use your institutional email (@charusat.edu.in or @charusat.ac.in)' 
-      }
+      return { success: false, error: "Please use your institutional email (@charusat.edu.in or @charusat.ac.in)" }
     }
 
     // Get or create user profile
     const appUser = await getCurrentUser()
     
     if (!appUser) {
+      console.error('❌ Failed to get/create user profile')
       await supabase.auth.signOut()
-      return { success: false, error: 'Failed to create or retrieve user profile' }
+      return { success: false, error: "Failed to create user profile. Please contact support." }
     }
 
+    console.log('✅ Authentication successful for:', appUser.email)
     return { success: true, user: appUser }
+
   } catch (error: any) {
-    console.error('Auth callback error:', error)
-    return { success: false, error: 'Failed to handle authentication callback' }
+    console.error('❌ Auth callback error:', error)
+    return { success: false, error: error.message || "Authentication failed" }
   }
 }
 
-// Sign out with proper cleanup
-export const logout = async (): Promise<{ success: boolean; error?: string }> => {
+export const logout = async () => {
   try {
-    // Clear cache first
+    console.log('🚪 Logging out user...')
     clearUserCache()
     
     const { error } = await supabase.auth.signOut()
-    
     if (error) {
-      console.error('Logout error:', error)
+      console.error('❌ Logout error:', error)
       return { success: false, error: error.message }
     }
 
-    // Clear local storage
+    // Clear browser storage
     if (typeof window !== 'undefined') {
       localStorage.clear()
       sessionStorage.clear()
-      
-      // Redirect to login page
-      window.location.href = '/auth'
+      // Force redirect to auth page
+      window.location.href = "/auth"
     }
 
     return { success: true }
   } catch (error: any) {
-    console.error('Logout error:', error)
-    return { success: false, error: 'Failed to sign out' }
+    console.error('❌ Logout error:', error)
+    return { success: false, error: error.message }
   }
 }
 
-// Auth state listener with rate limiting and deduplication
+// ===================
+// AUTH STATE LISTENER - SIMPLIFIED
+// ===================
 export const onAuthStateChange = (callback: (user: AppUser | null) => void) => {
   let isProcessing = false
-  let lastProcessedUserId: string | null = null
-  
+  let lastUserId: string | null = null
+
   return supabase.auth.onAuthStateChange(async (event, session) => {
-    const now = Date.now()
+    console.log('🔄 Auth state change:', event, session?.user?.email || 'no user')
     
-    // Rate limiting - prevent rapid fire auth state changes
-    if (now - lastAuthStateChange < AUTH_STATE_COOLDOWN) {
-      console.log('Auth state change rate limited')
-      return
-    }
-    lastAuthStateChange = now
-    
-    console.log('Auth state changed:', event, session?.user?.email)
-    
-    // Prevent multiple simultaneous processing
+    // Prevent concurrent processing
     if (isProcessing) {
-      console.log('Auth state change already processing, skipping')
+      console.log('⏳ Auth state change already processing, skipping...')
       return
     }
-    
-    // Skip duplicate events for the same user
-    const currentUserId = session?.user?.id || null
-    if (event !== 'SIGNED_OUT' && lastProcessedUserId === currentUserId) {
-      console.log('Skipping duplicate auth event for same user')
-      return
-    }
-    
+
     try {
       isProcessing = true
-      lastProcessedUserId = currentUserId
-      
-      if (event === 'SIGNED_OUT') {
+      const currentUserId = session?.user?.id || null
+
+      // Handle sign out
+      if (event === "SIGNED_OUT") {
+        console.log('👋 User signed out')
         clearUserCache()
+        lastUserId = null
         callback(null)
-      } else if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-        // Clear cache for fresh data
-        clearUserCache()
+        return
+      }
+
+      // Handle sign in / session events
+      if (session?.user && (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED")) {
+        // Skip if same user (prevents duplicate processing)
+        if (lastUserId === currentUserId && event !== "SIGNED_IN") {
+          console.log('⏭️ Same user, skipping processing for:', event)
+          return
+        }
+
+        lastUserId = currentUserId
+        console.log('👤 Processing user for event:', event)
         
-        // Small delay to ensure database sync
-        await new Promise(resolve => setTimeout(resolve, 500))
+        // For new sign-ins, clear cache to ensure fresh data
+        if (event === "SIGNED_IN") {
+          clearUserCache()
+          // Small delay to ensure database is ready
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
         
         const appUser = await getCurrentUser()
         callback(appUser)
-      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        // For token refresh, use cached data if available and same user
-        if (currentUserCache && currentUserId === currentUserCache.id) {
-          callback(currentUserCache)
-        } else {
-          const appUser = await getCurrentUser()
-          callback(appUser)
-        }
+        return
       }
+
+      // For any other event, return null
+      console.log('🚫 Unhandled auth event:', event)
+      callback(null)
+
     } catch (error) {
-      console.error('Error in auth state change handler:', error)
+      console.error('❌ Auth state change error:', error)
       clearUserCache()
       callback(null)
     } finally {
@@ -365,84 +378,112 @@ export const onAuthStateChange = (callback: (user: AppUser | null) => void) => {
   })
 }
 
-// Check if user session is valid
+// ===================
+// SESSION VALIDITY
+// ===================
 export const isSessionValid = async (): Promise<boolean> => {
   try {
     const { data: { session }, error } = await supabase.auth.getSession()
     
-    if (error || !session) {
+    if (error) {
+      console.error('❌ Session check error:', error)
       return false
     }
-
-    // Check if session is expired
-    if (session.expires_at && session.expires_at < Math.floor(Date.now() / 1000)) {
+    
+    if (!session) {
+      console.log('ℹ️ No session found')
       return false
     }
-
+    
+    if (session.expires_at && session.expires_at < Date.now() / 1000) {
+      console.log('⏰ Session expired')
+      return false
+    }
+    
+    console.log('✅ Session is valid')
     return true
   } catch (error) {
-    console.error('Error checking session validity:', error)
+    console.error('❌ Session validation error:', error)
     return false
   }
 }
 
-// Utility functions remain the same...
+// ===================
+// UTILITY FUNCTIONS
+// ===================
 export const getUserRole = (email: string): string | null => {
-  if (!email || typeof email !== 'string') return null
-  
-  const normalizedEmail = email.toLowerCase().trim()
-  
-  if (normalizedEmail.endsWith("@charusat.edu.in")) {
-    return "student"
-  } else if (normalizedEmail.endsWith("@charusat.ac.in")) {
-    if (normalizedEmail.includes("admin") || normalizedEmail === "admin@charusat.ac.in") {
-      return "admin"
-    } else if (normalizedEmail.includes("tp") || normalizedEmail === "tp@charusat.ac.in") {
-      return "tp-officer"
-    } else {
-      return "teacher"
-    }
+  const e = email.toLowerCase()
+  if (e.endsWith("@charusat.edu.in")) return "student"
+  if (e.endsWith("@charusat.ac.in")) {
+    if (e.includes("admin")) return "admin"
+    if (e.includes("tp")) return "tp-officer"
+    return "teacher"
   }
   return null
 }
 
-export const getNameFromEmail = (email: string): string => {
-  if (!email) return "Unknown User"
-  
-  const name = email.split("@")[0]
-  return name
-    .split(".")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ")
-}
+export const isValidInstitutionalEmail = (email: string): boolean =>
+  email.toLowerCase().endsWith("@charusat.edu.in") ||
+  email.toLowerCase().endsWith("@charusat.ac.in")
 
-// Extract user data based on email and role
-const extractUserData = (email: string, role: string) => {
-  let department = ''
-  let rollNumber = ''
-  let employeeId = ''
-
-  if (role === 'student') {
-    department = getDepartmentFromEmail(email)
-    rollNumber = getRollNumberFromEmail(email) || ''
-  } else if (role === 'teacher') {
-    department = 'Computer Engineering'
-  } else if (role === 'tp-officer') {
-    department = 'Training & Placement'
-    employeeId = 'TPO' + Math.random().toString(36).substr(2, 6).toUpperCase()
-  } else if (role === 'admin') {
-    department = 'Administration'
-    employeeId = 'ADM' + Math.random().toString(36).substr(2, 6).toUpperCase()
+export const requireAuth = async (allowedRoles?: string[]) => {
+  const user = await getCurrentUser()
+  if (!user) {
+    if (typeof window !== "undefined") window.location.href = "/auth"
+    return null
   }
-
-  return { department, rollNumber, employeeId }
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (typeof window !== "undefined") window.location.href = "/dashboard/" + user.role
+    return null
+  }
+  return user
 }
 
-// Helper to extract department from student email
-const getDepartmentFromEmail = (email: string): string => {
-  const rollPattern = email.match(/(\d{2})([A-Z]{2})/);
+export const hasPermission = (user: AppUser, requiredRole: string): boolean => {
+  const roleHierarchy = ["student", "teacher", "tp-officer", "admin"]
+  return roleHierarchy.indexOf(user.role) >= roleHierarchy.indexOf(requiredRole)
+}
+
+// ===================
+// HELPER FUNCTIONS
+// ===================
+function getNameFromEmail(email: string): string {
+  return email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, l => l.toUpperCase())
+}
+
+function extractUserData(email: string, role: string) {
+  if (role === "student") {
+    const rollMatch = email.match(/^([a-zA-Z0-9]+)@charusat\.edu\.in$/)
+    return {
+      department: getDepartmentFromEmail(email),
+      rollNumber: rollMatch ? rollMatch[1].toUpperCase() : "",
+      employeeId: "",
+      designation: ""
+    }
+  }
+  
+  if (role === "teacher" || role === "tp-officer" || role === "admin") {
+    const empMatch = email.match(/^([a-zA-Z0-9]+)@charusat\.ac\.in$/)
+    return {
+      department: role === "tp-officer" ? "Training & Placement" : role === "admin" ? "Administration" : "Computer Engineering",
+      rollNumber: "",
+      employeeId: empMatch ? empMatch[1].toUpperCase() : "",
+      designation: role === "tp-officer" ? "T&P Officer" : role === "admin" ? "System Administrator" : "Faculty"
+    }
+  }
+  
+  return {
+    department: "",
+    rollNumber: "",
+    employeeId: "",
+    designation: ""
+  }
+}
+
+function getDepartmentFromEmail(email: string): string {
+  const rollPattern = email.match(/(\d{2})([A-Z]{2})/i)
   if (rollPattern) {
-    const deptCode = rollPattern[2];
+    const deptCode = rollPattern[2].toUpperCase()
     const departmentMap: { [key: string]: string } = {
       'CE': 'Computer Engineering',
       'IT': 'Information Technology',
@@ -453,57 +494,8 @@ const getDepartmentFromEmail = (email: string): string => {
       'EE': 'Electrical Engineering',
       'IC': 'Instrumentation & Control',
       'CS': 'Computer Science'
-    };
-    return departmentMap[deptCode] || 'Computer Engineering';
-  }
-  return 'Computer Engineering';
-}
-
-// Helper to extract roll number from student email
-const getRollNumberFromEmail = (email: string): string | undefined => {
-  const rollPattern = email.match(/(\d{2}[A-Z]{2}\d{3})/);
-  return rollPattern ? rollPattern[1] : undefined;
-}
-
-// Email validation functions
-export const isValidEmail = (email: string): boolean => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
-}
-
-export const isValidInstitutionalEmail = (email: string): boolean => {
-  if (!isValidEmail(email)) return false
-  
-  const normalizedEmail = email.toLowerCase().trim()
-  return normalizedEmail.endsWith("@charusat.edu.in") || normalizedEmail.endsWith("@charusat.ac.in")
-}
-
-// Require authentication middleware
-export const requireAuth = async (allowedRoles?: string[]): Promise<AppUser | null> => {
-  const user = await getCurrentUser()
-
-  if (!user) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/auth"
     }
-    return null
+    return departmentMap[deptCode] || 'Computer Engineering'
   }
-
-  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/dashboard/" + user.role
-    }
-    return null
-  }
-
-  return user
-}
-
-// Check if user has permission
-export const hasPermission = (user: AppUser, requiredRole: string): boolean => {
-  const roleHierarchy = ['student', 'teacher', 'tp-officer', 'admin'];
-  const userRoleIndex = roleHierarchy.indexOf(user.role);
-  const requiredRoleIndex = roleHierarchy.indexOf(requiredRole);
-  
-  return userRoleIndex >= requiredRoleIndex;
+  return 'Computer Engineering'
 }

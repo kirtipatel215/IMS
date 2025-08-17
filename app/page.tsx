@@ -1,4 +1,4 @@
-// app/auth/page.tsx - FIXED Authentication Page (No Redirect Loops)
+// app/auth/page.tsx - COMPLETELY FIXED
 "use client"
 
 import { Button } from "@/components/ui/button"
@@ -9,71 +9,58 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { useToast } from "@/hooks/use-toast"
-import { 
-  signInWithGoogle, 
-  getCurrentUser,
-  isSessionValid
-} from "@/lib/auth-supabase"
+import { useAuth } from "@/contexts/AuthContext"
+import { signInWithGoogle } from "@/lib/auth-supabase"
 
 export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
-  const [checkingSession, setCheckingSession] = useState(true)
   const router = useRouter()
   const { toast } = useToast()
   
-  // Prevent multiple session checks and redirects
-  const hasCheckedSession = useRef(false)
-  const hasRedirected = useRef(false)
+  // Use auth context to check current state
+  const { user, isLoading: authLoading, isInitialized } = useAuth()
+  
+  // Prevent multiple redirects
+  const redirectRef = useRef(false)
 
-  // Check if user is already logged in - ONLY ONCE
+  // Handle redirect when user is already authenticated
   useEffect(() => {
-    // Prevent multiple session checks
-    if (hasCheckedSession.current || hasRedirected.current) return
+    // Only proceed if auth is initialized and not loading
+    if (!isInitialized || authLoading) {
+      console.log('🔄 Auth not ready yet, waiting...', { isInitialized, authLoading })
+      return
+    }
     
-    const checkExistingSession = async () => {
-      try {
-        hasCheckedSession.current = true
-        setCheckingSession(true)
-        
-        // Check if session is valid
-        const isValid = await isSessionValid()
-        if (!isValid) {
-          console.log('No valid session found')
-          setCheckingSession(false)
-          return
-        }
-
-        // Get current user if session is valid
-        const currentUser = await getCurrentUser()
-        if (currentUser && !hasRedirected.current) {
-          console.log('User already logged in, redirecting to dashboard')
-          hasRedirected.current = true
-          router.replace(`/dashboard/${currentUser.role}`)
-          return
-        }
-      } catch (error) {
-        console.error('Error checking existing session:', error)
-      } finally {
-        if (!hasRedirected.current) {
-          setCheckingSession(false)
-        }
-      }
+    // If user exists and we haven't redirected yet
+    if (user && !redirectRef.current) {
+      console.log('✅ User already authenticated, redirecting to:', user.role)
+      redirectRef.current = true
+      router.replace(`/dashboard/${user.role}`)
+      return
     }
 
-    checkExistingSession()
-  }, [router]) // Only depend on router, not on state
+    // If no user and auth is ready, user can proceed with login
+    if (!user) {
+      console.log('ℹ️ No authenticated user, showing login form')
+    }
+    
+  }, [user, isInitialized, authLoading, router])
 
   const handleGoogleLogin = async () => {
-    if (isLoading || hasRedirected.current) return // Prevent multiple clicks
+    // Prevent multiple clicks or if already redirecting
+    if (isLoading || redirectRef.current) {
+      console.log('⏭️ Login already in progress or redirecting')
+      return
+    }
     
     setError("")
     setSuccess("")
     setIsLoading(true)
 
     try {
-      console.log('Starting Google OAuth flow...')
+      console.log('🔗 Starting Google OAuth flow...')
       
       const result = await signInWithGoogle()
 
@@ -83,15 +70,13 @@ export default function AuthPage() {
           title: "Redirecting...",
           description: "Taking you to Google for secure authentication.",
         })
-        
-        // The OAuth flow will handle the redirect
-        // No need to manually redirect here
+        console.log('🔄 OAuth redirect initiated')
       } else {
         throw new Error(result.error || "Failed to initiate Google sign-in")
       }
 
     } catch (error: any) {
-      console.error("Login error:", error)
+      console.error('❌ Login error:', error)
       const errorMessage = error.message || "Login failed. Please try again."
       setError(errorMessage)
       toast({
@@ -99,71 +84,100 @@ export default function AuthPage() {
         description: errorMessage,
         variant: "destructive",
       })
-    } finally {
-      if (!hasRedirected.current) {
-        setIsLoading(false)
-      }
+      setIsLoading(false)
     }
+    // Note: Don't set isLoading(false) on success since we're redirecting
   }
 
-  // Show loading while checking existing session
-  if (checkingSession || hasRedirected.current) {
+  // Show loading while auth is initializing
+  if (!isInitialized) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <Card className="shadow-xl">
-          <CardContent className="p-8 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-            <p className="text-gray-600">
-              {hasRedirected.current ? 'Redirecting to dashboard...' : 'Checking your session...'}
-            </p>
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="flex justify-center">
+              <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center">
+                <Shield className="h-6 w-6 text-white" />
+              </div>
+            </div>
+            <div>
+              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-600" />
+              <p className="text-gray-600">Initializing authentication...</p>
+            </div>
           </CardContent>
         </Card>
       </div>
     )
   }
 
+  // Show loading while checking session or redirecting
+  if (authLoading || redirectRef.current) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <Card className="shadow-xl">
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="flex justify-center">
+              <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center">
+                <CheckCircle className="h-6 w-6 text-white" />
+              </div>
+            </div>
+            <div>
+              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-600" />
+              <p className="text-gray-600">
+                {redirectRef.current ? 'Redirecting to your dashboard...' : 'Checking your session...'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Main auth form (only shown when no user and auth is ready)
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <Card className="shadow-xl">
           <CardHeader className="text-center space-y-4">
-            <Link href="/" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900">
+            <Link href="/" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 transition-colors">
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back to Home
             </Link>
             <div className="flex justify-center">
-              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center shadow-lg">
                 <Shield className="h-8 w-8 text-white" />
               </div>
             </div>
-            <CardTitle className="text-2xl font-bold">Sign In to IMS</CardTitle>
-            <CardDescription className="text-gray-600">
-              Use your institutional Google account to access your dashboard
-            </CardDescription>
+            <div>
+              <CardTitle className="text-2xl font-bold text-gray-900">Sign In to IMS</CardTitle>
+              <CardDescription className="text-gray-600 mt-2">
+                Use your institutional Google account to access your dashboard
+              </CardDescription>
+            </div>
           </CardHeader>
           
           <CardContent className="space-y-6">
             {/* Error Alert */}
             {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
+              <Alert variant="destructive" className="border-red-200 bg-red-50">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-700">{error}</AlertDescription>
               </Alert>
             )}
 
             {/* Success Alert */}
             {success && (
-              <Alert className="border-green-200 bg-green-50 text-green-800">
-                <CheckCircle className="h-4 w-4" />
-                <AlertDescription>{success}</AlertDescription>
+              <Alert className="border-green-200 bg-green-50">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-green-700">{success}</AlertDescription>
               </Alert>
             )}
 
             {/* Information Alert */}
             {!isLoading && !error && !success && (
-              <Alert className="border-blue-200 bg-blue-50 text-blue-800">
-                <Info className="h-4 w-4" />
-                <AlertDescription>
+              <Alert className="border-blue-200 bg-blue-50">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-700">
                   Click below to sign in with your institutional Google account
                 </AlertDescription>
               </Alert>
@@ -171,48 +185,68 @@ export default function AuthPage() {
 
             {/* Google Sign In Button */}
             <Button 
-              className="w-full h-12 text-base" 
+              className="w-full h-12 text-base font-medium bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg" 
               size="lg" 
               onClick={handleGoogleLogin} 
-              disabled={isLoading || hasRedirected.current}
+              disabled={isLoading}
             >
               {isLoading ? (
-                <>
+                <div className="flex items-center">
                   <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                   Signing in with Google...
-                </>
+                </div>
               ) : (
-                <>
+                <div className="flex items-center">
                   <Chrome className="h-5 w-5 mr-2" />
                   Sign in with Google
-                </>
+                </div>
               )}
             </Button>
 
             {/* Supported Domains Info */}
-            <div className="text-center space-y-2">
-              <p className="text-xs text-gray-500">Supported institutional domains:</p>
+            <div className="bg-gray-50 rounded-lg p-4 text-center space-y-2">
+              <p className="text-sm font-medium text-gray-700">Supported institutional domains:</p>
               <div className="flex flex-col space-y-1">
-                <p className="text-xs text-gray-500">@charusat.edu.in (Students)</p>
-                <p className="text-xs text-gray-500">@charusat.ac.in (Faculty/Staff)</p>
+                <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded">@charusat.edu.in (Students)</span>
+                <span className="text-xs text-gray-600 bg-white px-2 py-1 rounded">@charusat.ac.in (Faculty/Staff)</span>
               </div>
             </div>
 
             {/* Help Section */}
-            <div className="border-t pt-4">
-              <h4 className="font-medium text-gray-800 mb-2">Having trouble signing in?</h4>
-              <ul className="text-xs text-gray-600 space-y-1">
-                <li>• Make sure you're using your institutional email</li>
-                <li>• Enable pop-ups for this site</li>
-                <li>• Clear your browser cache and try again</li>
-                <li>• Contact IT support if problems persist</li>
-              </ul>
+            <div className="border-t border-gray-200 pt-4">
+              <details className="group">
+                <summary className="cursor-pointer font-medium text-gray-800 mb-2 flex items-center justify-between">
+                  Having trouble signing in?
+                  <span className="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                </summary>
+                <ul className="text-xs text-gray-600 space-y-2 mt-2 pl-4">
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">•</span>
+                    Make sure you're using your institutional email
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">•</span>
+                    Enable pop-ups for this site
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">•</span>
+                    Clear your browser cache and try again
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">•</span>
+                    Contact IT support if problems persist
+                  </li>
+                </ul>
+              </details>
             </div>
 
             {/* Privacy Notice */}
-            <div className="text-center">
+            <div className="text-center border-t border-gray-200 pt-4">
               <p className="text-xs text-gray-500">
-                By signing in, you agree to our Terms of Service and Privacy Policy
+                By signing in, you agree to our{' '}
+                <Link href="/terms" className="text-blue-600 hover:underline">Terms of Service</Link>
+                {' '}and{' '}
+                <Link href="/privacy" className="text-blue-600 hover:underline">Privacy Policy</Link>
               </p>
             </div>
           </CardContent>
