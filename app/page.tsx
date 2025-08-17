@@ -1,246 +1,223 @@
+// app/auth/page.tsx - FIXED Authentication Page (No Redirect Loops)
 "use client"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { ArrowRight, Users, Building, FileText, Award, BarChart3, Shield } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Chrome, ArrowLeft, Loader2, Shield, AlertCircle, CheckCircle, Info } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
-import { getCurrentUser } from "@/lib/data"
 import { useRouter } from "next/navigation"
+import { useState, useEffect, useRef } from "react"
+import { useToast } from "@/hooks/use-toast"
+import { 
+  signInWithGoogle, 
+  getCurrentUser,
+  isSessionValid
+} from "@/lib/auth-supabase"
 
-export default function HomePage() {
-  const [user, setUser] = useState(null)
+export default function AuthPage() {
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+  const [checkingSession, setCheckingSession] = useState(true)
   const router = useRouter()
+  const { toast } = useToast()
+  
+  // Prevent multiple session checks and redirects
+  const hasCheckedSession = useRef(false)
+  const hasRedirected = useRef(false)
 
+  // Check if user is already logged in - ONLY ONCE
   useEffect(() => {
-    const currentUser = getCurrentUser()
-    if (currentUser) {
-      setUser(currentUser)
-    }
-  }, [])
+    // Prevent multiple session checks
+    if (hasCheckedSession.current || hasRedirected.current) return
+    
+    const checkExistingSession = async () => {
+      try {
+        hasCheckedSession.current = true
+        setCheckingSession(true)
+        
+        // Check if session is valid
+        const isValid = await isSessionValid()
+        if (!isValid) {
+          console.log('No valid session found')
+          setCheckingSession(false)
+          return
+        }
 
-  const handleGetStarted = () => {
-    if (user) {
-      router.push(`/dashboard/${user.role}`)
-    } else {
-      router.push("/auth")
+        // Get current user if session is valid
+        const currentUser = await getCurrentUser()
+        if (currentUser && !hasRedirected.current) {
+          console.log('User already logged in, redirecting to dashboard')
+          hasRedirected.current = true
+          router.replace(`/dashboard/${currentUser.role}`)
+          return
+        }
+      } catch (error) {
+        console.error('Error checking existing session:', error)
+      } finally {
+        if (!hasRedirected.current) {
+          setCheckingSession(false)
+        }
+      }
+    }
+
+    checkExistingSession()
+  }, [router]) // Only depend on router, not on state
+
+  const handleGoogleLogin = async () => {
+    if (isLoading || hasRedirected.current) return // Prevent multiple clicks
+    
+    setError("")
+    setSuccess("")
+    setIsLoading(true)
+
+    try {
+      console.log('Starting Google OAuth flow...')
+      
+      const result = await signInWithGoogle()
+
+      if (result.success) {
+        setSuccess("Redirecting to Google for authentication...")
+        toast({
+          title: "Redirecting...",
+          description: "Taking you to Google for secure authentication.",
+        })
+        
+        // The OAuth flow will handle the redirect
+        // No need to manually redirect here
+      } else {
+        throw new Error(result.error || "Failed to initiate Google sign-in")
+      }
+
+    } catch (error: any) {
+      console.error("Login error:", error)
+      const errorMessage = error.message || "Login failed. Please try again."
+      setError(errorMessage)
+      toast({
+        title: "Login Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      if (!hasRedirected.current) {
+        setIsLoading(false)
+      }
     }
   }
 
-  const features = [
-    {
-      icon: Users,
-      title: "Student Management",
-      description: "Comprehensive student portal for internship applications, NOC requests, and progress tracking.",
-      color: "text-blue-600",
-      bgColor: "bg-blue-100",
-    },
-    {
-      icon: Building,
-      title: "Company Verification",
-      description: "Streamlined company verification process ensuring quality internship opportunities.",
-      color: "text-green-600",
-      bgColor: "bg-green-100",
-    },
-    {
-      icon: FileText,
-      title: "Document Management",
-      description: "Centralized document handling for NOCs, reports, certificates, and applications.",
-      color: "text-purple-600",
-      bgColor: "bg-purple-100",
-    },
-    {
-      icon: Award,
-      title: "Certificate Approval",
-      description: "Faculty-driven certificate approval workflow with feedback and grading system.",
-      color: "text-orange-600",
-      bgColor: "bg-orange-100",
-    },
-    {
-      icon: BarChart3,
-      title: "Analytics & Reports",
-      description: "Comprehensive analytics dashboard for placement statistics and performance metrics.",
-      color: "text-red-600",
-      bgColor: "bg-red-100",
-    },
-    {
-      icon: Shield,
-      title: "Role-based Access",
-      description: "Secure role-based access control for students, faculty, T&P officers, and administrators.",
-      color: "text-indigo-600",
-      bgColor: "bg-indigo-100",
-    },
-  ]
-
-  const stats = [
-    { label: "Active Students", value: "500+", color: "text-blue-600" },
-    { label: "Partner Companies", value: "150+", color: "text-green-600" },
-    { label: "Successful Placements", value: "85%", color: "text-purple-600" },
-    { label: "Faculty Members", value: "50+", color: "text-orange-600" },
-  ]
+  // Show loading while checking existing session
+  if (checkingSession || hasRedirected.current) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <Card className="shadow-xl">
+          <CardContent className="p-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-gray-600">
+              {hasRedirected.current ? 'Redirecting to dashboard...' : 'Checking your session...'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Shield className="h-8 w-8 text-blue-600" />
-              <span className="text-xl font-bold text-gray-900">IMS</span>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <Card className="shadow-xl">
+          <CardHeader className="text-center space-y-4">
+            <Link href="/" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back to Home
+            </Link>
+            <div className="flex justify-center">
+              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
+                <Shield className="h-8 w-8 text-white" />
+              </div>
             </div>
-            <div className="flex items-center space-x-4">
-              {user ? (
-                <div className="flex items-center space-x-3">
-                  <Badge variant="secondary" className="capitalize">
-                    {user.role.replace("-", " ")}
-                  </Badge>
-                  <Button onClick={handleGetStarted}>
-                    Go to Dashboard
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
+            <CardTitle className="text-2xl font-bold">Sign In to IMS</CardTitle>
+            <CardDescription className="text-gray-600">
+              Use your institutional Google account to access your dashboard
+            </CardDescription>
+          </CardHeader>
+          
+          <CardContent className="space-y-6">
+            {/* Error Alert */}
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Success Alert */}
+            {success && (
+              <Alert className="border-green-200 bg-green-50 text-green-800">
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>{success}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Information Alert */}
+            {!isLoading && !error && !success && (
+              <Alert className="border-blue-200 bg-blue-50 text-blue-800">
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Click below to sign in with your institutional Google account
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Google Sign In Button */}
+            <Button 
+              className="w-full h-12 text-base" 
+              size="lg" 
+              onClick={handleGoogleLogin} 
+              disabled={isLoading || hasRedirected.current}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  Signing in with Google...
+                </>
               ) : (
-                <Link href="/auth">
-                  <Button>
-                    Sign In
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
+                <>
+                  <Chrome className="h-5 w-5 mr-2" />
+                  Sign in with Google
+                </>
               )}
-            </div>
-          </div>
-        </div>
-      </header>
+            </Button>
 
-      {/* Hero Section */}
-      <section className="py-12 sm:py-20 lg:py-24">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 mb-6">
-              Internship Management
-              <span className="block text-blue-600">Made Simple</span>
-            </h1>
-            <p className="text-lg sm:text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-              Streamline your internship workflow with our comprehensive management system. From applications to
-              certificates, manage everything in one place.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" onClick={handleGetStarted} className="text-lg px-8 py-3">
-                Get Started
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-              <Button size="lg" variant="outline" className="text-lg px-8 py-3 bg-transparent">
-                Learn More
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-12 bg-white">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {stats.map((stat, index) => (
-              <div key={index} className="text-center">
-                <div className={`text-3xl sm:text-4xl font-bold ${stat.color} mb-2`}>{stat.value}</div>
-                <div className="text-gray-600 text-sm sm:text-base">{stat.label}</div>
+            {/* Supported Domains Info */}
+            <div className="text-center space-y-2">
+              <p className="text-xs text-gray-500">Supported institutional domains:</p>
+              <div className="flex flex-col space-y-1">
+                <p className="text-xs text-gray-500">@charusat.edu.in (Students)</p>
+                <p className="text-xs text-gray-500">@charusat.ac.in (Faculty/Staff)</p>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
+            </div>
 
-      {/* Features Section */}
-      <section className="py-16 sm:py-20">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">Powerful Features</h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Everything you need to manage internships efficiently and effectively
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-            {features.map((feature, index) => (
-              <Card key={index} className="hover:shadow-lg transition-shadow duration-300">
-                <CardHeader>
-                  <div className={`w-12 h-12 rounded-lg ${feature.bgColor} flex items-center justify-center mb-4`}>
-                    <feature.icon className={`h-6 w-6 ${feature.color}`} />
-                  </div>
-                  <CardTitle className="text-xl">{feature.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription className="text-gray-600">{feature.description}</CardDescription>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
+            {/* Help Section */}
+            <div className="border-t pt-4">
+              <h4 className="font-medium text-gray-800 mb-2">Having trouble signing in?</h4>
+              <ul className="text-xs text-gray-600 space-y-1">
+                <li>• Make sure you're using your institutional email</li>
+                <li>• Enable pop-ups for this site</li>
+                <li>• Clear your browser cache and try again</li>
+                <li>• Contact IT support if problems persist</li>
+              </ul>
+            </div>
 
-      {/* CTA Section */}
-      <section className="py-16 bg-blue-600">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">Ready to Get Started?</h2>
-          <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
-            Join thousands of students and faculty already using our platform to manage internships effectively.
-          </p>
-          <Button size="lg" variant="secondary" onClick={handleGetStarted} className="text-lg px-8 py-3">
-            Start Your Journey
-            <ArrowRight className="ml-2 h-5 w-5" />
-          </Button>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div className="col-span-1 md:col-span-2">
-              <div className="flex items-center space-x-2 mb-4">
-                <Shield className="h-8 w-8 text-blue-400" />
-                <span className="text-xl font-bold">Internship Management System</span>
-              </div>
-              <p className="text-gray-400 mb-4">
-                Streamlining internship management for educational institutions with comprehensive workflow automation.
+            {/* Privacy Notice */}
+            <div className="text-center">
+              <p className="text-xs text-gray-500">
+                By signing in, you agree to our Terms of Service and Privacy Policy
               </p>
             </div>
-            <div>
-              <h3 className="font-semibold mb-4">Quick Links</h3>
-              <ul className="space-y-2 text-gray-400">
-                <li>
-                  <Link href="/auth" className="hover:text-white transition-colors">
-                    Student Portal
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/auth" className="hover:text-white transition-colors">
-                    Faculty Portal
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/auth" className="hover:text-white transition-colors">
-                    T&P Portal
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-4">Support</h3>
-              <ul className="space-y-2 text-gray-400">
-                <li>Help Center</li>
-                <li>Documentation</li>
-                <li>Contact Support</li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-            <p>&copy; 2024 Internship Management System. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

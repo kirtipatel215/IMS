@@ -1,110 +1,98 @@
+// app/auth/page.tsx - FIXED Authentication Page (No Redirect Loops)
 "use client"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Chrome, ArrowLeft, Loader2, Shield } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Chrome, ArrowLeft, Loader2, Shield, AlertCircle, CheckCircle, Info } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/contexts/AuthContext"
+import { signInWithGoogle } from "@/lib/auth-supabase"
 
 export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
   const router = useRouter()
   const { toast } = useToast()
+  
+  // Use auth context instead of direct checks
+  const { user, isLoading: authLoading, isInitialized } = useAuth()
+  
+  // Prevent multiple redirects
+  const hasRedirected = useRef(false)
 
-  const getUserRole = (email: string): string | null => {
-    if (email.endsWith("@charusat.edu.in")) {
-      return "student"
-    } else if (email.endsWith("@charusat.ac.in")) {
-      if (email.includes("admin") || email === "admin@charusat.ac.in") {
-        return "admin"
-      } else if (email.includes("tp") || email === "tp@charusat.ac.in") {
-        return "tp-officer"
-      } else {
-        return "teacher"
-      }
+  // Check if user is already logged in - using auth context
+  useEffect(() => {
+    // Wait for auth to initialize
+    if (!isInitialized || authLoading) return
+    
+    // Redirect if user is already logged in
+    if (user && !hasRedirected.current) {
+      console.log('User already logged in, redirecting to dashboard')
+      hasRedirected.current = true
+      router.replace(`/dashboard/${user.role}`)
     }
-    return null
-  }
-
-  const getNameFromEmail = (email: string): string => {
-    const name = email.split("@")[0]
-    return name
-      .split(".")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ")
-  }
+  }, [user, isInitialized, authLoading, router])
 
   const handleGoogleLogin = async () => {
+    if (isLoading || hasRedirected.current) return
+    
+    setError("")
+    setSuccess("")
     setIsLoading(true)
 
     try {
-      // In a real implementation, this would integrate with Google OAuth
-      // For demo purposes, we'll simulate the Google authentication flow
+      console.log('Starting Google OAuth flow...')
       
-      // Simulate Google OAuth response with different email scenarios
-      const demoEmails = [
-        "john.doe@charusat.edu.in",
-        "sarah.wilson@charusat.ac.in", 
-        "tp@charusat.ac.in",
-        "admin@charusat.ac.in"
-      ]
-      
-      // In production, you would get this from Google OAuth response
-      // const googleResponse = await signInWithGoogle()
-      // const userEmail = googleResponse.user.email
-      
-      // For demo, we'll use a random demo email
-      const simulatedEmail = demoEmails[Math.floor(Math.random() * demoEmails.length)]
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      const role = getUserRole(simulatedEmail)
-      
-      if (!role) {
+      const result = await signInWithGoogle()
+
+      if (result.success) {
+        setSuccess("Redirecting to Google for authentication...")
         toast({
-          title: "Access Denied",
-          description: "Your Google account is not associated with a valid institutional email. Please contact IT support.",
-          variant: "destructive",
+          title: "Redirecting...",
+          description: "Taking you to Google for secure authentication.",
         })
-        setIsLoading(false)
-        return
+      } else {
+        throw new Error(result.error || "Failed to initiate Google sign-in")
       }
 
-      const userData = {
-        id: Math.floor(Math.random() * 1000) + 1,
-        email: simulatedEmail,
-        role,
-        name: getNameFromEmail(simulatedEmail),
-        loginTime: new Date().toISOString(),
-        // In production, you'd also store:
-        // picture: googleResponse.user.picture,
-        // googleId: googleResponse.user.id,
-      }
-
-      // Note: In production, you should use secure session management instead of localStorage
-      localStorage.setItem("user", JSON.stringify(userData))
-
-      toast({
-        title: "Login Successful",
-        description: `Welcome ${userData.name}! Redirecting to ${role.replace("-", " ")} dashboard...`,
-      })
-
-      setTimeout(() => {
-        router.push(`/dashboard/${role}`)
-      }, 1000)
-
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login error:", error)
+      const errorMessage = error.message || "Login failed. Please try again."
+      setError(errorMessage)
       toast({
         title: "Login Failed",
-        description: "Unable to complete Google authentication. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       })
-      setIsLoading(false)
+    } finally {
+      if (!hasRedirected.current) {
+        setIsLoading(false)
+      }
     }
+  }
+
+  // Show loading while auth is initializing
+  if (!isInitialized || authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <Card className="shadow-xl">
+          <CardContent className="p-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-gray-600">Checking your session...</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Don't render if already redirecting
+  if (hasRedirected.current) {
+    return null
   }
 
   return (
@@ -121,38 +109,42 @@ export default function AuthPage() {
                 <Shield className="h-8 w-8 text-white" />
               </div>
             </div>
-            <CardTitle className="text-2xl font-bold">Sign In</CardTitle>
+            <CardTitle className="text-2xl font-bold">Sign In to IMS</CardTitle>
             <CardDescription className="text-gray-600">
-              Use your institutional Google account to access the appropriate portal
+              Use your institutional Google account to access your dashboard
             </CardDescription>
           </CardHeader>
+          
           <CardContent className="space-y-6">
-            {/* Role Information */}
-            <div className="p-4 bg-gray-50 rounded-lg border">
-              <h3 className="text-sm font-medium text-gray-800 mb-2">Access Levels:</h3>
-              <div className="space-y-1 text-xs text-gray-600">
-                <div className="flex items-center justify-between">
-                  <span>@charusat.edu.in</span>
-                  <span className="text-blue-600 font-medium">Student Portal</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>@charusat.ac.in</span>
-                  <span className="text-green-600 font-medium">Faculty Portal</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>tp@charusat.ac.in</span>
-                  <span className="text-purple-600 font-medium">T&P Portal</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>admin@charusat.ac.in</span>
-                  <span className="text-orange-600 font-medium">Admin Portal</span>
-                </div>
-              </div>
-            </div>
+            {/* Error Alert */}
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Success Alert */}
+            {success && (
+              <Alert className="border-green-200 bg-green-50 text-green-800">
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>{success}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Information Alert */}
+            {!isLoading && !error && !success && (
+              <Alert className="border-blue-200 bg-blue-50 text-blue-800">
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Click below to sign in with your institutional Google account
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Google Sign In Button */}
             <Button 
-              className="w-full h-12 text-base font-medium" 
+              className="w-full h-12 text-base" 
               size="lg" 
               onClick={handleGoogleLogin} 
               disabled={isLoading}
@@ -160,7 +152,7 @@ export default function AuthPage() {
               {isLoading ? (
                 <>
                   <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Authenticating with Google...
+                  Signing in with Google...
                 </>
               ) : (
                 <>
@@ -170,21 +162,31 @@ export default function AuthPage() {
               )}
             </Button>
 
-            {/* Security Note */}
-            <div className="text-center">
-              <p className="text-xs text-gray-500">
-                🔒 Secure authentication through your institutional Google account
-              </p>
+            {/* Supported Domains Info */}
+            <div className="text-center space-y-2">
+              <p className="text-xs text-gray-500">Supported institutional domains:</p>
+              <div className="flex flex-col space-y-1">
+                <p className="text-xs text-gray-500">@charusat.edu.in (Students)</p>
+                <p className="text-xs text-gray-500">@charusat.ac.in (Faculty/Staff)</p>
+              </div>
             </div>
 
-            {/* Demo Note */}
+            {/* Help Section */}
             <div className="border-t pt-4">
-              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-xs text-blue-700 font-medium mb-1">Demo Mode Active</p>
-                <p className="text-xs text-blue-600">
-                  In production, this will authenticate with your actual Google account and automatically determine your role based on your email domain.
-                </p>
-              </div>
+              <h4 className="font-medium text-gray-800 mb-2">Having trouble signing in?</h4>
+              <ul className="text-xs text-gray-600 space-y-1">
+                <li>• Make sure you're using your institutional email</li>
+                <li>• Enable pop-ups for this site</li>
+                <li>• Clear your browser cache and try again</li>
+                <li>• Contact IT support if problems persist</li>
+              </ul>
+            </div>
+
+            {/* Privacy Notice */}
+            <div className="text-center">
+              <p className="text-xs text-gray-500">
+                By signing in, you agree to our Terms of Service and Privacy Policy
+              </p>
             </div>
           </CardContent>
         </Card>

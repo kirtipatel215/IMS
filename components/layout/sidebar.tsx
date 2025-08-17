@@ -2,7 +2,6 @@
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import {
@@ -28,6 +27,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { logout } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
+import { useMemo, useCallback } from "react"
 
 interface SidebarProps {
   user: any
@@ -35,7 +35,14 @@ interface SidebarProps {
   onClose: () => void
 }
 
-const getNavigationItems = (role: string) => {
+interface NavigationItem {
+  name: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  badge?: string
+}
+
+const getNavigationItems = (role: string): NavigationItem[] => {
   switch (role) {
     case "student":
       return [
@@ -81,16 +88,40 @@ const getNavigationItems = (role: string) => {
 function SidebarContent({ user, onItemClick }: { user: any; onItemClick?: () => void }) {
   const pathname = usePathname()
   const { toast } = useToast()
-  const navigationItems = getNavigationItems(user.role)
+  
+  // Memoize navigation items to prevent recreation
+  const navigationItems = useMemo(() => getNavigationItems(user?.role || ""), [user?.role])
 
-  const handleLogout = () => {
-    logout()
-    toast({
-      title: "Logged Out",
-      description: "You have been successfully logged out.",
-    })
-    if (onItemClick) onItemClick()
-  }
+  const handleLogout = useCallback(() => {
+    try {
+      logout()
+      toast({
+        title: "Logged Out",
+        description: "You have been successfully logged out.",
+      })
+      if (onItemClick) onItemClick()
+    } catch (error) {
+      toast({
+        title: "Logout Error",
+        description: "There was an error logging out. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }, [toast, onItemClick])
+
+  const userInitials = useMemo(() => {
+    if (!user?.name) return "U"
+    return user.name
+      .split(" ")
+      .map((n: string) => n[0])
+      .join("")
+      .toUpperCase()
+  }, [user?.name])
+
+  const userRoleFormatted = useMemo(() => {
+    if (!user?.role) return "User"
+    return user.role.replace("-", " ")
+  }, [user?.role])
 
   return (
     <div className="flex h-full flex-col bg-white border-r border-gray-200">
@@ -108,10 +139,12 @@ function SidebarContent({ user, onItemClick }: { user: any; onItemClick?: () => 
       </div>
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 px-3 py-4">
+      <div className="flex-1 px-3 py-4 overflow-y-auto">
         <nav className="space-y-1">
           {navigationItems.map((item) => {
             const isActive = pathname === item.href
+            const IconComponent = item.icon
+            
             return (
               <Link key={item.name} href={item.href} onClick={onItemClick}>
                 <Button
@@ -123,7 +156,7 @@ function SidebarContent({ user, onItemClick }: { user: any; onItemClick?: () => 
                       : "hover:bg-gray-50 text-gray-700 hover:text-gray-900",
                   )}
                 >
-                  <item.icon className={cn("mr-3 h-4 w-4", isActive && "text-blue-600")} />
+                  <IconComponent className={cn("mr-3 h-4 w-4", isActive && "text-blue-600")} />
                   <span className="flex-1 text-left text-sm font-medium">{item.name}</span>
                   {item.badge && (
                     <Badge
@@ -141,22 +174,19 @@ function SidebarContent({ user, onItemClick }: { user: any; onItemClick?: () => 
             )
           })}
         </nav>
-      </ScrollArea>
+      </div>
 
       {/* User info and logout */}
       <div className="border-t border-gray-200 p-4 space-y-3">
         <div className="flex items-center space-x-3 px-2">
           <div className="h-8 w-8 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
             <span className="text-sm font-medium text-white">
-              {user.name
-                .split(" ")
-                .map((n: string) => n[0])
-                .join("")}
+              {userInitials}
             </span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-            <p className="text-xs text-gray-500 truncate capitalize">{user.role.replace("-", " ")}</p>
+            <p className="text-sm font-medium text-gray-900 truncate">{user?.name || "User"}</p>
+            <p className="text-xs text-gray-500 truncate capitalize">{userRoleFormatted}</p>
           </div>
         </div>
         <Button

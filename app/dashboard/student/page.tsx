@@ -7,54 +7,151 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
-  BookOpen,
   FileText,
-  Award,
-  TrendingUp,
-  Building,
-  CheckCircle,
-  AlertCircle,
   Calendar,
-  Star,
-  Zap,
-  Target,
-  Activity,
-  Bell,
-  ArrowRight,
+  Award,
+  Building,
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  TrendingUp,
+  BookOpen,
+  Users,
 } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { useAuth } from "@/contexts/AuthContext"
+import { getStudentDashboardData } from "@/lib/data"
+import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
-import { getCurrentUser, getStudentDashboardData } from "@/lib/data"
-import { useEffect, useState } from "react"
+
+// Define proper interfaces for type safety
+interface DashboardStats {
+  nocRequests?: {
+    total: number
+    pending: number
+    approved: number
+    rejected: number
+  }
+  reports?: {
+    total: number
+    submitted: number
+    reviewed: number
+    recent: any[]
+  }
+  certificates?: {
+    total: number
+    pending: number
+    approved: number
+    recent: any[]
+  }
+  opportunities?: {
+    total: number
+    recent: any[]
+  }
+  recentActivity?: any[]
+}
 
 export default function StudentDashboard() {
-  const [user, setUser] = useState(null)
-  const [dashboardData, setDashboardData] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats>({})
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
+  
+  // Use auth context instead of direct calls
+  const { user, isLoading: authLoading, isInitialized } = useAuth()
+  
+  // Prevent multiple data fetches
+  const hasFetchedData = useRef(false)
+  const currentUserId = useRef<string | null>(null)
 
   useEffect(() => {
-    const currentUser = getCurrentUser()
-    setUser(currentUser)
+    const loadDashboardData = async () => {
+      // Wait for auth to be ready
+      if (!isInitialized || authLoading || !user) {
+        setIsLoading(true)
+        return
+      }
 
-    if (currentUser?.id) {
-      const data = getStudentDashboardData(currentUser.id)
-      setDashboardData(data)
+      // Prevent duplicate fetches for same user
+      if (hasFetchedData.current && currentUserId.current === user.id) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        setError(null)
+        hasFetchedData.current = true
+        currentUserId.current = user.id
+
+        console.log(`Loading dashboard data for user: ${user.id}`)
+
+        // Get dashboard data with user from context
+        const stats = await getStudentDashboardData(user.id)
+        
+        setDashboardStats(stats || {
+          nocRequests: { total: 0, pending: 0, approved: 0, rejected: 0 },
+          reports: { total: 0, submitted: 0, reviewed: 0, recent: [] },
+          certificates: { total: 0, pending: 0, approved: 0, recent: [] },
+          opportunities: { total: 0, recent: [] },
+          recentActivity: []
+        })
+
+      } catch (error: any) {
+        console.error("Error loading dashboard data:", error)
+        setError(error.message || "Failed to load dashboard data")
+        toast({
+          title: "Error",
+          description: "Failed to load dashboard data. Please refresh the page.",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
     }
-    setLoading(false)
-  }, [])
 
-  if (loading) {
+    loadDashboardData()
+  }, [user, isInitialized, authLoading, toast])
+
+  // Reset fetch flag when user changes
+  useEffect(() => {
+    if (user && currentUserId.current !== user.id) {
+      hasFetchedData.current = false
+    }
+  }, [user])
+
+  // Safe accessors with defaults
+  const nocRequests = dashboardStats.nocRequests || { total: 0, pending: 0, approved: 0, rejected: 0 }
+  const reports = dashboardStats.reports || { total: 0, submitted: 0, reviewed: 0, recent: [] }
+  const certificates = dashboardStats.certificates || { total: 0, pending: 0, approved: 0, recent: [] }
+  const opportunities = dashboardStats.opportunities || { total: 0, recent: [] }
+  const recentActivity = dashboardStats.recentActivity || []
+
+  // Calculate progress safely
+  const totalReports = reports.total || 0
+  const approvedReports = reports.reviewed || 0
+  const progressValue = totalReports > 0 ? (approvedReports / totalReports) * 100 : 0
+
+  if (isLoading || authLoading || !isInitialized) {
     return (
       <AuthGuard allowedRoles={["student"]}>
         <DashboardLayout>
-          <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-6 space-y-6">
-            <div className="animate-pulse space-y-6">
-              <div className="h-8 w-64 bg-gray-200 rounded mb-2"></div>
-              <div className="h-4 w-96 bg-gray-200 rounded"></div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-32 bg-gray-200 rounded-2xl"></div>
-                ))}
-              </div>
+          <div className="space-y-6">
+            <div className="animate-pulse">
+              <div className="h-8 bg-gray-200 rounded w-1/4 mb-2"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <div className="animate-pulse space-y-3">
+                      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                      <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         </DashboardLayout>
@@ -62,328 +159,260 @@ export default function StudentDashboard() {
     )
   }
 
-  const data = dashboardData || {
-    stats: {
-      totalReports: 12,
-      approvedReports: 8,
-      pendingReports: 2,
-      totalCertificates: 3,
-      approvedCertificates: 2,
-      nocRequests: 2,
-      approvedNOCs: 1,
-    },
-    recentActivities: [
-      { type: "report", title: "Week 8 report submitted", time: "2024-01-15T10:30:00Z", status: "pending" },
-      {
-        type: "certificate",
-        title: "Certificate uploaded for TechCorp",
-        time: "2024-01-14T14:20:00Z",
-        status: "approved",
-      },
-      { type: "noc", title: "NOC request approved", time: "2024-01-10T09:15:00Z", status: "approved" },
-    ],
-  }
-
-  const progressValue = data.stats.totalReports > 0 ? (data.stats.approvedReports / data.stats.totalReports) * 100 : 0
-
-  const upcomingDeadlines = [
-    { id: 1, title: "Weekly Report #9", dueDate: "2024-01-20", priority: "high" },
-    { id: 2, title: "Mid-term Evaluation", dueDate: "2024-01-25", priority: "medium" },
-  ]
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "approved":
-        return "bg-green-100 text-green-800 border-green-200"
-      case "pending":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200"
-      case "rejected":
-        return "bg-red-100 text-red-800 border-red-200"
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200"
-    }
-  }
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "high":
-        return "text-red-600"
-      case "medium":
-        return "text-yellow-600"
-      case "low":
-        return "text-green-600"
-      default:
-        return "text-gray-600"
-    }
-  }
-
-  const getGradientAvatar = (title: string, index: number) => {
-    const gradients = [
-      "bg-gradient-to-br from-blue-400 to-purple-500",
-      "bg-gradient-to-br from-emerald-400 to-teal-500",
-      "bg-gradient-to-br from-orange-400 to-pink-500",
-      "bg-gradient-to-br from-indigo-400 to-blue-500",
-      "bg-gradient-to-br from-rose-400 to-red-500",
-    ]
-    return gradients[index % gradients.length]
+  if (error) {
+    return (
+      <AuthGuard allowedRoles={["student"]}>
+        <DashboardLayout>
+          <div className="flex items-center justify-center min-h-[400px]">
+            <Card className="max-w-md">
+              <CardContent className="p-6 text-center">
+                <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Error Loading Dashboard</h3>
+                <p className="text-gray-600 mb-4">{error}</p>
+                <Button onClick={() => {
+                  hasFetchedData.current = false
+                  window.location.reload()
+                }}>
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </DashboardLayout>
+      </AuthGuard>
+    )
   }
 
   return (
     <AuthGuard allowedRoles={["student"]}>
       <DashboardLayout>
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative">
-          <div className="relative z-10 p-6 space-y-8">
-            {/* Header */}
-            <div className="flex justify-between items-start from-blue-500 to-purple-600 ">
-              <div className="space-y-2">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
-                    <Star className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                      Welcome back, {user?.name || "Student"}!
-                    </h1>
-                    <p className="text-gray-600 text-lg">Track your internship progress and manage your activities</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2 mt-4">
-                  <Badge className="bg-gradient-to-r from-blue-100 to-purple-100 text-blue-700 border-blue-200">
-                    <Zap className="h-3 w-3 mr-1" />
-                    Active Student
-                  </Badge>
-                  <Badge className="bg-gradient-to-r from-emerald-100 to-teal-100 text-emerald-700 border-emerald-200">
-                    <Target className="h-3 w-3 mr-1" />
-                    On Track
-                  </Badge>
-                </div>
-              </div>
-              <div className="text-right space-y-1">
-                <p className="text-sm text-gray-500 font-medium">Roll Number: {user?.rollNumber || "21CE001"}</p>
-                <p className="text-sm text-gray-500">Computer Engineering - 6th Semester</p>
-                <p className="text-xs text-gray-400">CGPA: 8.5</p>
-                <div className="flex items-center justify-end mt-2">
-                  <Bell className="h-4 w-4 text-blue-500 mr-1" />
-                  <span className="text-xs text-blue-600 font-medium">2 new notifications</span>
-                </div>
-              </div>
-            </div>
+        <div className="space-y-6">
+          {/* Welcome Section */}
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">
+              Welcome back, {user?.name || "Student"}!
+            </h1>
+            <p className="text-gray-600">
+              {user?.department && `${user.department} • `}
+              {user?.rollNumber || "Student"}
+            </p>
+          </div>
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
-                {
-                  title: "NOC Status",
-                  value: `${data.stats.approvedNOCs}/${data.stats.nocRequests}`,
-                  icon: FileText,
-                  color: "blue",
-                  trend: "+1",
-                  subtitle: "Approved requests",
-                },
-                {
-                  title: "Reports Progress",
-                  value: `${data.stats.approvedReports}/${data.stats.totalReports}`,
-                  icon: BookOpen,
-                  color: "emerald",
-                  trend: "+2",
-                  subtitle: "Submitted this month",
-                },
-                {
-                  title: "Certificates",
-                  value: data.stats.approvedCertificates,
-                  icon: Award,
-                  color: "orange",
-                  trend: "+1",
-                  subtitle: "Earned this semester",
-                },
-                {
-                  title: "Overall Progress",
-                  value: `${Math.round(progressValue)}%`,
-                  icon: TrendingUp,
-                  color: "purple",
-                  trend: "+5%",
-                  subtitle: "Completion rate",
-                },
-              ].map((stat, index) => (
-                <Card
-                  key={index}
-                  className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300 border-l-4 border-l-blue-500"
-                >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">{stat.title}</CardTitle>
-                    <div
-                      className={`w-10 h-10 rounded-xl bg-gradient-to-br from-${stat.color}-100 to-${stat.color}-200 flex items-center justify-center`}
-                    >
-                      <stat.icon className={`h-5 w-5 text-${stat.color}-600`} />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className={`text-3xl font-bold text-${stat.color}-600 mb-2`}>{stat.value}</div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-gray-500">{stat.subtitle}</p>
-                      <div className="flex items-center">
-                        <TrendingUp className="h-3 w-3 text-emerald-500 mr-1" />
-                        <span className="text-xs text-emerald-600 font-medium">{stat.trend}</span>
-                      </div>
-                    </div>
-                    {stat.title === "Reports Progress" && <Progress value={progressValue} className="mt-2 h-2" />}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Recent Activities */}
-              <Card className="lg:col-span-2 bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-                <CardHeader className="border-b border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-purple-100 rounded-xl flex items-center justify-center">
-                        <Activity className="h-5 w-5 text-blue-600" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-xl font-bold text-gray-900">Recent Activities</CardTitle>
-                        <CardDescription className="text-gray-600">Your latest submissions and updates</CardDescription>
-                      </div>
-                    </div>
-                    <Badge className="bg-gradient-to-r from-blue-100 to-purple-100 text-blue-700">Live Updates</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <div className="space-y-4">
-                    {data.recentActivities.map((activity, index) => (
-                      <div
-                        key={`activity-${index}`}
-                        className="flex items-center space-x-4 p-4 rounded-xl bg-gradient-to-r from-gray-50 to-blue-50 hover:from-blue-50 hover:to-purple-50 transition-all duration-300"
-                      >
-                        <div className="flex-shrink-0">
-                          <div
-                            className={`w-12 h-12 ${getGradientAvatar(activity.title, index)} rounded-full flex items-center justify-center shadow-lg`}
-                          >
-                            {activity.type === "report" ? (
-                              <FileText className="h-5 w-5 text-white" />
-                            ) : activity.type === "certificate" ? (
-                              <Award className="h-5 w-5 text-white" />
-                            ) : (
-                              <CheckCircle className="h-5 w-5 text-white" />
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900">{activity.title}</p>
-                          <p className="text-sm text-gray-600">
-                            {new Date(activity.time).toLocaleDateString()} •{" "}
-                            {new Date(activity.time).toLocaleTimeString()}
-                          </p>
-                        </div>
-                        <Badge className={`${getStatusColor(activity.status)} px-3 py-1 text-xs font-medium`}>
-                          {activity.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-6 pt-4 border-t border-gray-100">
-                    <Link href="/dashboard/student/reports">
-                      <Button className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white">
-                        <BookOpen className="h-4 w-4 mr-2" />
-                        View All Reports
-                        <ArrowRight className="h-4 w-4 ml-2" />
-                      </Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Upcoming Deadlines */}
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-                <CardHeader className="border-b border-gray-100">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-orange-100 to-red-100 rounded-xl flex items-center justify-center">
-                      <AlertCircle className="h-5 w-5 text-orange-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-xl font-bold text-gray-900">Upcoming Deadlines</CardTitle>
-                      <CardDescription className="text-gray-600">Don't miss these important dates</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <div className="space-y-4">
-                    {upcomingDeadlines.map((deadline) => (
-                      <div
-                        key={deadline.id}
-                        className="flex items-center space-x-3 p-4 rounded-xl bg-gradient-to-r from-orange-50 to-red-50 border border-orange-100"
-                      >
-                        <AlertCircle className={`h-5 w-5 ${getPriorityColor(deadline.priority)}`} />
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-gray-900">{deadline.title}</p>
-                          <div className="flex items-center space-x-1 text-xs text-gray-500 mt-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>{deadline.dueDate}</span>
-                          </div>
-                        </div>
-                        <Badge
-                          className={`${deadline.priority === "high" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"} px-2 py-1 text-xs`}
-                        >
-                          {deadline.priority}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Quick Actions */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-              <CardHeader className="border-b border-gray-100">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl flex items-center justify-center">
-                    <Zap className="h-5 w-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-xl font-bold text-gray-900">Quick Actions</CardTitle>
-                    <CardDescription className="text-gray-600">Frequently used features</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* NOC Requests */}
+            <Card>
               <CardContent className="p-6">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    {
-                      href: "/dashboard/student/opportunities",
-                      icon: Building,
-                      label: "Browse Opportunities",
-                      color: "blue",
-                    },
-                    { href: "/dashboard/student/noc", icon: FileText, label: "Apply for NOC", color: "emerald" },
-                    { href: "/dashboard/student/reports", icon: BookOpen, label: "Submit Report", color: "orange" },
-                    {
-                      href: "/dashboard/student/certificates",
-                      icon: Award,
-                      label: "View Certificates",
-                      color: "purple",
-                    },
-                  ].map((action, index) => (
-                    <Link key={index} href={action.href}>
-                      <Button
-                        variant="outline"
-                        className="w-full h-20 flex flex-col items-center justify-center space-y-2 hover:bg-blue-50 hover:border-blue-200 transition-all duration-300 bg-gradient-to-br from-white to-gray-50 border-2"
-                      >
-                        <div
-                          className={`w-8 h-8 rounded-lg bg-gradient-to-br from-${action.color}-100 to-${action.color}-200 flex items-center justify-center`}
-                        >
-                          <action.icon className={`h-4 w-4 text-${action.color}-600`} />
-                        </div>
-                        <span className="font-semibold text-gray-700 text-center text-sm">{action.label}</span>
-                      </Button>
-                    </Link>
-                  ))}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">NOC Requests</p>
+                    <p className="text-2xl font-bold">{nocRequests.total}</p>
+                    <p className="text-xs text-gray-500">
+                      {nocRequests.pending} pending
+                    </p>
+                  </div>
+                  <FileText className="h-8 w-8 text-blue-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Reports */}
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Reports</p>
+                    <p className="text-2xl font-bold">{totalReports}</p>
+                    <p className="text-xs text-gray-500">
+                      {reports.submitted} submitted
+                    </p>
+                  </div>
+                  <Calendar className="h-8 w-8 text-green-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Certificates */}
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Certificates</p>
+                    <p className="text-2xl font-bold">{certificates.total}</p>
+                    <p className="text-xs text-gray-500">
+                      {certificates.approved} approved
+                    </p>
+                  </div>
+                  <Award className="h-8 w-8 text-purple-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Opportunities */}
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Opportunities</p>
+                    <p className="text-2xl font-bold">{opportunities.total}</p>
+                    <p className="text-xs text-gray-500">Available now</p>
+                  </div>
+                  <Building className="h-8 w-8 text-orange-600" />
                 </div>
               </CardContent>
             </Card>
           </div>
+
+          {/* Progress Overview */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Progress Overview
+              </CardTitle>
+              <CardDescription>Your internship journey progress</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">Report Completion</span>
+                  <span className="text-sm text-gray-500">{Math.round(progressValue)}%</span>
+                </div>
+                <Progress value={progressValue} className="w-full" />
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-blue-600">{totalReports}</div>
+                    <div className="text-xs text-gray-500">Total Reports</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-green-600">{approvedReports}</div>
+                    <div className="text-xs text-gray-500">Reviewed</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-orange-600">{reports.submitted}</div>
+                    <div className="text-xs text-gray-500">Pending</div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions & Recent Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Link href="/dashboard/student/noc-requests">
+                  <Button variant="outline" className="w-full justify-start">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Submit NOC Request
+                  </Button>
+                </Link>
+                <Link href="/dashboard/student/reports">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    Submit Weekly Report
+                  </Button>
+                </Link>
+                <Link href="/dashboard/student/certificates">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Award className="mr-2 h-4 w-4" />
+                    Upload Certificate
+                  </Button>
+                </Link>
+                <Link href="/dashboard/student/opportunities">
+                  <Button variant="outline" className="w-full justify-start">
+                    <Building className="mr-2 h-4 w-4" />
+                    Browse Opportunities
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+
+            {/* Recent Activity */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Activity</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {recentActivity.length > 0 ? (
+                    recentActivity.slice(0, 6).map((activity: any, index: number) => (
+                      <div key={activity.id || index} className="flex items-center space-x-3">
+                        <div className="flex-shrink-0">
+                          {activity.type === 'noc' && <FileText className="h-4 w-4 text-blue-600" />}
+                          {activity.type === 'report' && <Calendar className="h-4 w-4 text-green-600" />}
+                          {activity.type === 'certificate' && <Award className="h-4 w-4 text-purple-600" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {activity.title || 'Recent Activity'}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {activity.created_at ? new Date(activity.created_at).toLocaleDateString() : 'Recently'}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            activity.status === "approved"
+                              ? "default"
+                              : activity.status === "pending"
+                              ? "secondary"
+                              : "destructive"
+                          }
+                        >
+                          {activity.status === "approved" && <CheckCircle className="h-3 w-3 mr-1" />}
+                          {activity.status === "pending" && <Clock className="h-3 w-3 mr-1" />}
+                          {activity.status === "rejected" && <AlertCircle className="h-3 w-3 mr-1" />}
+                          {activity.status || 'Unknown'}
+                        </Badge>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-6">
+                      <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                      <p className="text-gray-500">No recent activity</p>
+                      <p className="text-sm text-gray-400">
+                        Start by submitting your first NOC request or report
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Recent Opportunities */}
+          {opportunities.recent && opportunities.recent.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Latest Opportunities</CardTitle>
+                <CardDescription>New internship opportunities you might be interested in</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {opportunities.recent.slice(0, 3).map((opportunity: any, index: number) => (
+                    <div key={opportunity.id || index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <h4 className="font-medium">{opportunity.title || 'Internship Opportunity'}</h4>
+                        <p className="text-sm text-gray-600">
+                          {opportunity.company_name || 'Company'} • {opportunity.job_type || 'Internship'}
+                        </p>
+                      </div>
+                      <Link href="/dashboard/student/opportunities">
+                        <Button variant="outline" size="sm">
+                          View Details
+                        </Button>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </DashboardLayout>
     </AuthGuard>
