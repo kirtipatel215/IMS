@@ -24,7 +24,7 @@ type NOCRequest = {
   startDate: string
   submittedDate: string
   approvedDate?: string
-  status: "approved" | "pending" | "rejected"
+  status: "approved" | "pending" | "rejected" | string
   description: string
   feedback?: string
   documents?: string[]
@@ -37,26 +37,31 @@ export default function NOCRequests() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
 
-useEffect(() => {
-  const loadNOCRequests = async () => {
-    const user = await getCurrentUser()
-    if (user) {
-      const requests = await getNOCRequestsByStudent(user.id)
-      setNocRequests(Array.isArray(requests) ? requests : [])
-    } else {
-      setNocRequests([])
+  useEffect(() => {
+    const loadNOCRequests = async () => {
+      const user = await getCurrentUser()
+      if (user) {
+        try {
+          const requests = await getNOCRequestsByStudent(user.id)
+          setNocRequests(Array.isArray(requests) ? requests : [])
+        } catch (err: any) {
+          console.error("Error fetching NOC requests:", err)
+          setNocRequests([])
+        }
+      } else {
+        setNocRequests([])
+      }
     }
-  }
 
-  loadNOCRequests()
-}, [])
+    loadNOCRequests()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
     const formData = new FormData(e.target as HTMLFormElement)
-    const user = getCurrentUser()
+    const user = await getCurrentUser()
 
     if (!user) {
       toast({
@@ -69,32 +74,35 @@ useEffect(() => {
     }
 
     try {
-      const newNOC = createNOCRequest({
-        studentId: user.id,
-        studentName: user.name,
-        studentEmail: user.email,
-        company: formData.get("company") as string,
-        position: formData.get("position") as string,
-        duration: formData.get("duration") as string,
-        startDate: formData.get("startDate") as string,
-        description: formData.get("description") as string,
-        documents: ["offer_letter.pdf"],
-      })
+     const newNOC = await createNOCRequest({
+  studentId: user.id,
+  studentName: user.name,
+  studentEmail: user.email,
+  company: formData.get("company") as string,   // ✅ will go into company_name
+  position: formData.get("position") as string,
+  duration: formData.get("duration") as string,
+  startDate: formData.get("startDate") as string,
+  description: formData.get("description") as string,
+  documents: ["offer_letter.pdf"],
+})
 
-      setNocRequests((prev) => [...prev, newNOC])
-      setShowForm(false)
 
-      toast({
-        title: "NOC Request Submitted",
-        description: "Your NOC request has been submitted successfully and is pending review.",
-      })
+      if (newNOC) {
+        setNocRequests((prev) => [...prev, newNOC])
+        setShowForm(false)
 
-      // Reset form
-      ;(e.target as HTMLFormElement).reset()
-    } catch (error) {
+        toast({
+          title: "NOC Request Submitted",
+          description: "Your NOC request has been submitted successfully and is pending review.",
+        })
+
+        ;(e.target as HTMLFormElement).reset()
+      }
+    } catch (error: any) {
+      console.error("Failed to submit NOC:", error)
       toast({
         title: "Error",
-        description: "Failed to submit NOC request. Please try again.",
+        description: error.message || "Failed to submit NOC request. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -195,62 +203,70 @@ useEffect(() => {
           )}
 
           <div className="space-y-4">
-            {nocRequests.map((request) => (
-              <Card key={request.id}>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold">{request.company}</h3>
-                        <Badge
-                          variant={
-                            request.status === "approved"
-                              ? "default"
-                              : request.status === "pending"
-                                ? "secondary"
-                                : "destructive"
-                          }
-                          className="flex items-center gap-1"
-                        >
-                          {request.status === "approved" && <CheckCircle className="h-3 w-3" />}
-                          {request.status === "pending" && <Clock className="h-3 w-3" />}
-                          {request.status === "rejected" && <XCircle className="h-3 w-3" />}
-                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                        </Badge>
-                      </div>
-                      <p className="text-gray-600 mb-2">{request.position}</p>
-                      <p className="text-sm text-gray-700 mb-3">{request.description}</p>
-                      <div className="flex gap-4 text-sm text-gray-500">
-                        <span>Duration: {request.duration}</span>
-                        <span>Start Date: {new Date(request.startDate).toLocaleDateString()}</span>
-                        <span>Submitted: {new Date(request.submittedDate).toLocaleDateString()}</span>
-                        {request.approvedDate && (
-                          <span>Approved: {new Date(request.approvedDate).toLocaleDateString()}</span>
+            {nocRequests.map((request) => {
+              const statusLabel = request.status
+                ? request.status.charAt(0).toUpperCase() + request.status.slice(1)
+                : "Unknown"
+
+              return (
+                <Card key={request.id}>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-lg font-semibold">{request.company}</h3>
+                          <Badge
+                            variant={
+                              request.status === "approved"
+                                ? "default"
+                                : request.status === "pending"
+                                  ? "secondary"
+                                  : request.status === "rejected"
+                                    ? "destructive"
+                                    : "outline"
+                            }
+                            className="flex items-center gap-1"
+                          >
+                            {request.status === "approved" && <CheckCircle className="h-3 w-3" />}
+                            {request.status === "pending" && <Clock className="h-3 w-3" />}
+                            {request.status === "rejected" && <XCircle className="h-3 w-3" />}
+                            {statusLabel}
+                          </Badge>
+                        </div>
+                        <p className="text-gray-600 mb-2">{request.position}</p>
+                        <p className="text-sm text-gray-700 mb-3">{request.description}</p>
+                        <div className="flex gap-4 text-sm text-gray-500">
+                          <span>Duration: {request.duration}</span>
+                          <span>Start Date: {new Date(request.startDate).toLocaleDateString()}</span>
+                          <span>Submitted: {new Date(request.submittedDate).toLocaleDateString()}</span>
+                          {request.approvedDate && (
+                            <span>Approved: {new Date(request.approvedDate).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                        {request.feedback && (
+                          <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                            <p className="text-sm font-medium mb-1">Review Feedback:</p>
+                            <p className="text-sm text-gray-700">{request.feedback}</p>
+                          </div>
                         )}
                       </div>
-                      {request.feedback && (
-                        <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                          <p className="text-sm font-medium mb-1">Review Feedback:</p>
-                          <p className="text-sm text-gray-700">{request.feedback}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleViewDetails(request.id)}>
-                        <Eye className="h-4 w-4 mr-1" />
-                        View Details
-                      </Button>
-                      {request.status === "approved" && (
-                        <Button variant="outline" size="sm" onClick={() => handleDownloadNOC(request.id)}>
-                          <Download className="h-4 w-4 mr-1" />
-                          Download NOC
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleViewDetails(request.id)}>
+                          <Eye className="h-4 w-4 mr-1" />
+                          View Details
                         </Button>
-                      )}
+                        {request.status === "approved" && (
+                          <Button variant="outline" size="sm" onClick={() => handleDownloadNOC(request.id)}>
+                            <Download className="h-4 w-4 mr-1" />
+                            Download NOC
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
 
           {nocRequests.length === 0 && (

@@ -296,64 +296,47 @@ export const createWeeklyReport = async (reportData: any, file?: File) => {
 // ===================
 // NOC REQUESTS - FIXED
 // ===================
-export const getNOCRequestsByStudent = async (studentId: string) => {
+export async function getNOCRequestsByStudent(studentId: string) {
   try {
-    if (!supabase) {
-      return getMockNOCRequests(studentId)
-    }
-
     const { data, error } = await supabase
-      .from('noc_requests')
-      .select('*')
-      .eq('student_id', studentId)
-      .order('submitted_date', { ascending: false })
+      .from("noc_requests")
+      .select(`
+        id,
+        company_name,
+        position,
+        duration,
+        start_date,
+        submitted_date,
+        approved_date,
+        status,
+        description,
+        feedback,
+        documents
+      `)
+      .eq("student_id", studentId)
 
     if (error) {
-      console.error('Error fetching NOC requests:', error)
-      return getMockNOCRequests(studentId)
+      console.error("Error fetching NOC requests:", error.message || error)
+      return []
     }
 
     return data || []
-  } catch (error) {
-    console.error('Error in getNOCRequestsByStudent:', error)
-    return getMockNOCRequests(studentId)
+  } catch (err) {
+    console.error("Unexpected error fetching NOC requests:", err)
+    return []
   }
 }
 
+
 export const createNOCRequest = async (requestData: any) => {
   try {
-    // === REQUIRED FIELD CHECK ===
     if (!requestData.studentId || !requestData.studentName || !requestData.studentEmail) {
       throw new Error("Missing studentId, studentName, or studentEmail for NOC request")
     }
 
-    console.log('Creating NOC request:', requestData)
-
-    if (!supabase) {
-      // Mock creation
-      const newNOC = {
-        id: Math.floor(Math.random() * 1000) + 100,
-        student_id: requestData.studentId,
-        student_name: requestData.studentName,
-        student_email: requestData.studentEmail,
-        company_name: requestData.company,
-        position: requestData.position,
-        duration: requestData.duration,
-        start_date: requestData.startDate,
-        description: requestData.description,
-        status: 'pending',
-        documents: requestData.documents || [],
-        submitted_date: new Date().toISOString(),
-        created_at: new Date().toISOString()
-      }
-      
-      console.log('Created mock NOC request:', newNOC)
-      return newNOC
-    }
-
-    // Calculate end date based on duration and start date
+    // Calculate end date
     const startDate = new Date(requestData.startDate)
-    const durationMonths = parseInt(requestData.duration.match(/\d+/)?.[0] || '3')
+    const durationMonths = parseInt(requestData.duration.match(/\d+/)?.[0] || "3")
     const endDate = new Date(startDate)
     endDate.setMonth(endDate.getMonth() + durationMonths)
 
@@ -361,39 +344,32 @@ export const createNOCRequest = async (requestData: any) => {
       student_id: requestData.studentId,
       student_name: requestData.studentName,
       student_email: requestData.studentEmail,
-      company_name: requestData.company,
+      company_name: requestData.company,        // ✅ correct column
       position: requestData.position,
       duration: requestData.duration,
       start_date: requestData.startDate,
-      end_date: endDate.toISOString().split('T')[0],
+      end_date: endDate.toISOString().split("T")[0],
       description: requestData.description,
-      documents: requestData.documents || [],
-      status: 'pending'
+      documents: JSON.stringify(requestData.documents || []), // ✅ match jsonb
+      status: "pending",
+      submitted_date: new Date().toISOString(),
     }
 
-    console.log('Inserting NOC data:', insertData)
-
     const { data, error } = await supabase
-      .from('noc_requests')
+      .from("noc_requests")
       .insert(insertData)
       .select()
       .single()
 
     if (error) {
-      console.error('Database error creating NOC request:', error)
-      throw new Error(`Database error: ${error.message}`)
+      console.error("Database error creating NOC request:", error)
+      throw new Error(error.message)
     }
 
-    console.log('Successfully created NOC request in database:', data)
-    
-    // Clear cache
-    clearDataCache(`noc-${requestData.studentId}`)
-    
     return data
-
   } catch (error: any) {
-    console.error('Error creating NOC request:', error)
-    throw new Error(error.message || 'Failed to create NOC request')
+    console.error("Error creating NOC request:", error)
+    throw new Error(error.message || "Failed to create NOC request")
   }
 }
 
