@@ -15,38 +15,71 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Search, MapPin, Calendar, Building, ExternalLink, Send, Briefcase } from "lucide-react"
 import { useState, useEffect } from "react"
 import { getAllOpportunities, createApplication, getCurrentUser, getApplicationsByStudent } from "@/lib/data"
 import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
+import { supabase } from "@/lib/supabase"
 
 export default function StudentOpportunities() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterLocation, setFilterLocation] = useState("all")
   const [filterDuration, setFilterDuration] = useState("all")
-  const [opportunities, setOpportunities] = useState([])
-  const [applications, setApplications] = useState([])
-  const [selectedOpportunity, setSelectedOpportunity] = useState(null)
+  const [opportunities, setOpportunities] = useState<any[]>([])
+  const [applications, setApplications] = useState<any[]>([])
+  const [selectedOpportunity, setSelectedOpportunity] = useState<any | null>(null)
   const [coverLetter, setCoverLetter] = useState("")
   const [isApplying, setIsApplying] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const { toast } = useToast()
+  const router = useRouter()
 
   useEffect(() => {
-  const loadData = async () => {
-    const opportunitiesData = await getAllOpportunities()
-    setOpportunities(Array.isArray(opportunitiesData) ? opportunitiesData : [])
+    const loadData = async () => {
+      const opportunitiesData = await getAllOpportunities()
+      setOpportunities(Array.isArray(opportunitiesData) ? opportunitiesData : [])
 
-    const user = await getCurrentUser()
-    if (user) {
-      const userApplications = await getApplicationsByStudent(user.id)
-      setApplications(Array.isArray(userApplications) ? userApplications : [])
+      const user = await getCurrentUser()
+      if (user) {
+        const userApplications = await getApplicationsByStudent(user.id)
+        setApplications(Array.isArray(userApplications) ? userApplications : [])
+      }
     }
-  }
 
-  loadData()
-}, [])
+    loadData()
+
+    // ✅ Subscribe to realtime updates from applications table
+    const channel = supabase
+      .channel("realtime-opportunities")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "applications" },
+        (payload) => {
+          // Update applicants count live
+          setOpportunities((prev) =>
+            prev.map((opp) =>
+              opp.id === payload.new.opportunity_id
+                ? { ...opp, applicants: opp.applicants + 1 }
+                : opp
+            )
+          )
+
+          // If current user applied, update applications list
+          getCurrentUser().then((user) => {
+            if (user && user.id === payload.new.student_id) {
+              setApplications((prev) => [...prev, payload.new])
+            }
+          })
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   const handleApply = async () => {
     if (!selectedOpportunity || !coverLetter.trim()) {
@@ -61,10 +94,10 @@ export default function StudentOpportunities() {
     setIsApplying(true)
 
     try {
-      const user = getCurrentUser()
+      const user = await getCurrentUser()
       if (!user) throw new Error("User not found")
 
-      const application = createApplication({
+      const application = await createApplication({
         opportunityId: selectedOpportunity.id,
         studentId: user.id,
         studentName: user.name,
@@ -73,6 +106,7 @@ export default function StudentOpportunities() {
         resumeFileName: "resume.pdf",
       })
 
+      // Update local state immediately for button disable
       setApplications((prev) => [...prev, application])
 
       toast({
@@ -80,8 +114,13 @@ export default function StudentOpportunities() {
         description: `Your application for ${selectedOpportunity.title} has been submitted successfully.`,
       })
 
+      // ✅ Reset dialog state
       setCoverLetter("")
       setSelectedOpportunity(null)
+      setDialogOpen(false)
+
+      // Redirect to dashboard (optional)
+      router.push("/dashboard/student")
     } catch (error) {
       toast({
         title: "Error",
@@ -94,7 +133,7 @@ export default function StudentOpportunities() {
   }
 
   const hasApplied = (opportunityId: number) => {
-    return applications.some((app) => app.opportunityId === opportunityId)
+    return applications.some((app) => app.opportunity_id === opportunityId || app.opportunityId === opportunityId)
   }
 
   const filteredOpportunities = opportunities.filter((opportunity) => {
@@ -192,7 +231,7 @@ export default function StudentOpportunities() {
                       </div>
                       <p className="text-gray-700 mb-3 text-sm sm:text-base">{opportunity.description}</p>
                       <div className="flex flex-wrap gap-2 mb-3">
-                        {opportunity.requirements.map((req, index) => (
+                        {opportunity.requirements.map((req: string, index: number) => (
                           <Badge key={index} variant="secondary" className="text-xs">
                             {req}
                           </Badge>
@@ -216,13 +255,17 @@ export default function StudentOpportunities() {
                     </div>
                     <div className="flex flex-col gap-2 lg:ml-4">
                       {!hasApplied(opportunity.id) ? (
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button onClick={() => setSelectedOpportunity(opportunity)} className="w-full lg:w-auto">
-                              Apply Now
-                              <Send className="ml-2 h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
+                        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                          <Button
+                            onClick={() => {
+                              setSelectedOpportunity(opportunity)
+                              setDialogOpen(true)
+                            }}
+                            className="w-full lg:w-auto"
+                          >
+                            Apply Now
+                            <Send className="ml-2 h-4 w-4" />
+                          </Button>
                           <DialogContent className="sm:max-w-[500px] mx-4">
                             <DialogHeader>
                               <DialogTitle>Apply for {opportunity.title}</DialogTitle>
@@ -235,7 +278,7 @@ export default function StudentOpportunities() {
                                 <Label htmlFor="cover-letter">Cover Letter *</Label>
                                 <Textarea
                                   id="cover-letter"
-                                  placeholder="Write a compelling cover letter explaining why you're interested in this position..."
+                                  placeholder="Write a compelling cover letter..."
                                   value={coverLetter}
                                   onChange={(e) => setCoverLetter(e.target.value)}
                                   rows={6}
@@ -247,7 +290,11 @@ export default function StudentOpportunities() {
                                 </Button>
                                 <Button
                                   variant="outline"
-                                  onClick={() => setSelectedOpportunity(null)}
+                                  onClick={() => {
+                                    setDialogOpen(false)
+                                    setSelectedOpportunity(null)
+                                    setCoverLetter("")
+                                  }}
                                   className="flex-1"
                                 >
                                   Cancel

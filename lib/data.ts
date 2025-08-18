@@ -506,76 +506,59 @@ export const getApplicationsByStudent = async (studentId: string) => {
   }
 }
 
+
 export const createApplication = async (applicationData: any) => {
   try {
-    // === REQUIRED FIELD CHECK ===
     if (!applicationData.studentId || !applicationData.studentName || !applicationData.studentEmail) {
-      throw new Error("Missing studentId, studentName, or studentEmail for application")
+      throw new Error("Missing required student details")
     }
 
-    console.log('Creating application:', applicationData)
-
-    if (!supabase) {
-      // Mock creation
-      const newApplication = {
-        id: Math.floor(Math.random() * 1000) + 100,
-        student_id: applicationData.studentId,
-        student_name: applicationData.studentName,
-        student_email: applicationData.studentEmail,
-        opportunity_id: applicationData.opportunityId,
-        cover_letter: applicationData.coverLetter,
-        resume_file_name: applicationData.resumeFileName,
-        status: 'pending',
-        applied_date: new Date().toISOString()
-      }
-      
-      console.log('Created mock application:', newApplication)
-      return newApplication
-    }
-
+    // ✅ Insert data matches schema (snake_case keys)
     const insertData = {
-      student_id: applicationData.studentId,
+      student_id: applicationData.studentId,      // now text, not uuid
       student_name: applicationData.studentName,
       student_email: applicationData.studentEmail,
-      opportunity_id: applicationData.opportunityId,
+      opportunity_id: Number(applicationData.opportunityId), // ensure integer
       cover_letter: applicationData.coverLetter,
       resume_file_name: applicationData.resumeFileName,
-      status: 'pending'
+      status: "pending",
     }
 
+    console.log("Inserting application:", insertData)
+
     const { data, error } = await supabase
-      .from('applications')
+      .from("applications")
       .insert(insertData)
       .select()
       .single()
 
     if (error) {
-      console.error('Database error creating application:', error)
-      throw new Error(`Database error: ${error.message}`)
+      console.error("Database error creating application:", error)
+      throw new Error(error.message || "Insert failed")
     }
 
-    // Update opportunity applicant count
-    try {
-      await supabase.rpc('increment_applicant_count', { 
-        opportunity_id: applicationData.opportunityId 
-      })
-    } catch (countError) {
-      console.warn('Failed to update applicant count:', countError)
-      // Don't throw error as application was created successfully
+    // ✅ Increment applicant count
+    const { error: countError } = await supabase.rpc("increment_applicant_count", {
+      opportunity_id: insertData.opportunity_id,
+    })
+
+    if (countError) {
+      console.warn("Applicant count not updated:", countError)
     }
 
-    console.log('Successfully created application in database:', data)
-    
-    // Clear cache
+    // ✅ Clear caches
     clearDataCache(`applications-${applicationData.studentId}`)
-    
-    return data
+    clearDataCache(`opportunity-${applicationData.opportunityId}`)
 
-  } catch (error: any) {
-    console.error('Error creating application:', error)
-    throw new Error(error.message || 'Failed to create application')
+    console.log("Application created successfully:", data)
+    return data
+  } catch (err: any) {
+    console.error("Error in createApplication:", err)
+    throw new Error(err.message || "Failed to create application")
   }
 }
+
+
 
 // ...rest of your file remains unchanged...
 
@@ -590,19 +573,36 @@ export const getAllOpportunities = async () => {
     }
 
     const { data, error } = await supabase
-      .from('job_opportunities')
-      .select('*')
-      .eq('status', 'active')
-      .order('posted_date', { ascending: false })
-    
+      .from("job_opportunities")
+      .select("*")
+      .eq("status", "active")
+      .order("posted_date", { ascending: false })
+
     if (error) {
-      console.error('Error fetching opportunities:', error)
+      console.error("Error fetching opportunities:", error.message || error)
       return getMockOpportunities()
     }
-    
-    return data || []
-  } catch (error) {
-    console.error('Error in getAllOpportunities:', error)
+
+    // 🔄 Map DB fields to UI expected fields
+    return (data || []).map((job) => ({
+      id: job.id,
+      title: job.title,
+      description: job.description,
+      company: job.company_name,       // schema: company_name
+      location: job.location,
+      duration: job.duration,
+      requirements: job.requirements || [],
+      stipend: job.stipend,
+      positions: job.positions,
+      applicants: job.applicants,
+      deadline: job.deadline,
+      verified: job.verified,
+      type: job.job_type,              // schema: job_type
+      status: job.status,
+      postedDate: job.posted_date,
+    }))
+  } catch (error: any) {
+    console.error("Error in getAllOpportunities:", error.message || error)
     return getMockOpportunities()
   }
 }
