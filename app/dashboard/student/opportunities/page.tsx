@@ -34,19 +34,19 @@ export default function StudentOpportunities() {
   const { toast } = useToast()
 
   useEffect(() => {
-    const loadData = () => {
-      const opportunitiesData = getAllOpportunities()
-      setOpportunities(opportunitiesData)
+  const loadData = async () => {
+    const opportunitiesData = await getAllOpportunities()
+    setOpportunities(Array.isArray(opportunitiesData) ? opportunitiesData : [])
 
-      const user = getCurrentUser()
-      if (user) {
-        const userApplications = getApplicationsByStudent(user.id)
-        setApplications(userApplications)
-      }
+    const user = await getCurrentUser()
+    if (user) {
+      const userApplications = await getApplicationsByStudent(user.id)
+      setApplications(Array.isArray(userApplications) ? userApplications : [])
     }
+  }
 
-    loadData()
-  }, [])
+  loadData()
+}, [])
 
   const handleApply = async () => {
     if (!selectedOpportunity || !coverLetter.trim()) {

@@ -16,23 +16,40 @@ import { useState, useEffect } from "react"
 import { getNOCRequestsByStudent, createNOCRequest, getCurrentUser } from "@/lib/data"
 import { useToast } from "@/hooks/use-toast"
 
+type NOCRequest = {
+  id: number
+  company: string
+  position: string
+  duration: string
+  startDate: string
+  submittedDate: string
+  approvedDate?: string
+  status: "approved" | "pending" | "rejected"
+  description: string
+  feedback?: string
+  documents?: string[]
+  [key: string]: any
+}
+
 export default function NOCRequests() {
   const [showForm, setShowForm] = useState(false)
-  const [nocRequests, setNocRequests] = useState([])
+  const [nocRequests, setNocRequests] = useState<NOCRequest[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
 
-  useEffect(() => {
-    const loadNOCRequests = () => {
-      const user = getCurrentUser()
-      if (user) {
-        const requests = getNOCRequestsByStudent(user.id)
-        setNocRequests(requests)
-      }
+useEffect(() => {
+  const loadNOCRequests = async () => {
+    const user = await getCurrentUser()
+    if (user) {
+      const requests = await getNOCRequestsByStudent(user.id)
+      setNocRequests(Array.isArray(requests) ? requests : [])
+    } else {
+      setNocRequests([])
     }
+  }
 
-    loadNOCRequests()
-  }, [])
+  loadNOCRequests()
+}, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

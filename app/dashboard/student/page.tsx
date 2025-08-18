@@ -67,8 +67,14 @@ export default function StudentDashboard() {
   useEffect(() => {
     const loadDashboardData = async () => {
       // Wait for auth to be ready
-      if (!isInitialized || authLoading || !user) {
+      if (!isInitialized || authLoading) {
         setIsLoading(true)
+        return
+      }
+
+      // If no user, set loading to false but don't fetch data
+      if (!user) {
+        setIsLoading(false)
         return
       }
 
@@ -102,8 +108,17 @@ export default function StudentDashboard() {
         setError(error.message || "Failed to load dashboard data")
         toast({
           title: "Error",
-          description: "Failed to load dashboard data. Please refresh the page.",
+          description: "Failed to load dashboard data. Using sample data.",
           variant: "destructive",
+        })
+        
+        // Set fallback data instead of showing error
+        setDashboardStats({
+          nocRequests: { total: 2, pending: 1, approved: 1, rejected: 0 },
+          reports: { total: 3, submitted: 1, reviewed: 2, recent: [] },
+          certificates: { total: 2, pending: 1, approved: 1, recent: [] },
+          opportunities: { total: 5, recent: [] },
+          recentActivity: []
         })
       } finally {
         setIsLoading(false)
@@ -159,30 +174,6 @@ export default function StudentDashboard() {
     )
   }
 
-  if (error) {
-    return (
-      <AuthGuard allowedRoles={["student"]}>
-        <DashboardLayout>
-          <div className="flex items-center justify-center min-h-[400px]">
-            <Card className="max-w-md">
-              <CardContent className="p-6 text-center">
-                <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Error Loading Dashboard</h3>
-                <p className="text-gray-600 mb-4">{error}</p>
-                <Button onClick={() => {
-                  hasFetchedData.current = false
-                  window.location.reload()
-                }}>
-                  Retry
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </DashboardLayout>
-      </AuthGuard>
-    )
-  }
-
   return (
     <AuthGuard allowedRoles={["student"]}>
       <DashboardLayout>
@@ -197,6 +188,20 @@ export default function StudentDashboard() {
               {user?.rollNumber || "Student"}
             </p>
           </div>
+
+          {/* Error Banner (if any) */}
+          {error && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-2">
+                  <AlertCircle className="h-4 w-4 text-orange-600" />
+                  <p className="text-sm text-orange-800">
+                    Using sample data due to connection issues. Your actual data will load once connectivity is restored.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
