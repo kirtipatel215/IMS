@@ -28,13 +28,51 @@ export default function TPOfficerDashboard() {
   const [dashboardData, setDashboardData] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    const currentUser = getCurrentUser()
-    setUser(currentUser)
+ useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        // Handle getCurrentUser - it might be async or sync
+        const currentUser = await getCurrentUser()
+        setUser(currentUser)
 
-    const data = getTPOfficerDashboardData()
-    setDashboardData(data)
-    setLoading(false)
+        // Properly await the async function
+        const data = await getTPOfficerDashboardData()
+        setDashboardData(data)
+      } catch (error) {
+        console.error('Error loading dashboard data:', error)
+        // Set fallback data on error
+        setDashboardData({
+          stats: {
+            pendingNOCs: 12,
+            approvedNOCs: 45,
+            totalCompanies: 28,
+            verifiedCompanies: 22,
+            pendingCompanies: 6,
+            totalOpportunities: 35,
+            activeOpportunities: 28,
+          },
+          recentActivities: [
+            { type: "noc", title: "NOC request from John Doe", time: "2024-01-15T10:30:00Z", status: "pending" },
+            {
+              type: "company",
+              title: "Company registration: TechCorp Solutions",
+              time: "2024-01-14T14:20:00Z",
+              status: "verified",
+            },
+            {
+              type: "opportunity",
+              title: "New internship posted by Infosys",
+              time: "2024-01-12T09:15:00Z",
+              status: "active",
+            },
+          ],
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadDashboardData()
   }, [])
 
   if (loading) {

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Upload, CheckCircle, Clock, AlertCircle, MessageSquare, Download, FileText } from "lucide-react"
+import { Plus, Upload, CheckCircle, Clock, AlertCircle, MessageSquare, Download, FileText, Loader2 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { getReportsByStudent, createWeeklyReport, getCurrentUser } from "@/lib/data"
 import { useToast } from "@/hooks/use-toast"
@@ -18,21 +18,30 @@ import { useToast } from "@/hooks/use-toast"
 // Define proper interfaces
 interface WeeklyReport {
   id: number
-  student_id: string
-  student_name: string
-  student_email: string
-  week_number: number
+  student_id?: string
+  studentId?: string
+  student_name?: string
+  studentName?: string
+  student_email?: string
+  studentEmail?: string
+  week_number?: number
+  week?: number
   title: string
   description: string
   achievements: string[]
   status: 'pending' | 'approved' | 'revision_required'
   file_name?: string
+  fileName?: string
   file_url?: string
+  fileUrl?: string
   file_size?: number
+  fileSize?: number
   feedback?: string
   grade?: string
-  submitted_date: string
-  created_at: string
+  submitted_date?: string
+  submittedDate?: string
+  created_at?: string
+  createdAt?: string
   comments?: string
 }
 
@@ -50,26 +59,40 @@ export default function WeeklyReports() {
   const [showForm, setShowForm] = useState<boolean>(false)
   const [reports, setReports] = useState<WeeklyReport[]>([])
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const { toast } = useToast()
 
+  // Load current user and reports on component mount
   useEffect(() => {
-    const loadReports = async () => {
+    const loadUserAndReports = async () => {
+      setIsLoading(true)
       try {
-        setIsLoading(true)
+        // Get current user first
         const user = await getCurrentUser()
-        if (user) {
-          const userReports = await getReportsByStudent(user.id)
-          setReports(Array.isArray(userReports) ? userReports : [])
-        } else {
-          setReports([])
+        console.log('Current user loaded:', user)
+        
+        if (!user) {
+          toast({
+            title: "Authentication Error",
+            description: "Unable to load user data. Please refresh the page.",
+            variant: "destructive",
+          })
+          return
         }
+
+        setCurrentUser(user)
+
+        // Load user's reports
+        const userReports = await getReportsByStudent(user.id)
+        console.log('User reports loaded:', userReports)
+        setReports(Array.isArray(userReports) ? userReports : [])
       } catch (error) {
-        console.error('Error loading reports:', error)
+        console.error('Error loading user data:', error)
         toast({
           title: "Error",
-          description: "Failed to load reports. Please try again.",
+          description: "Failed to load user data. Please refresh the page.",
           variant: "destructive",
         })
       } finally {
@@ -77,7 +100,7 @@ export default function WeeklyReports() {
       }
     }
 
-    loadReports()
+    loadUserAndReports()
   }, [toast])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,27 +132,27 @@ export default function WeeklyReports() {
       }
 
       setUploadedFile(file)
+      console.log('File selected:', file.name, 'Size:', file.size)
     }
   }
 
   const handleSubmitReport = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    
+    if (!currentUser) {
+      toast({
+        title: "Error",
+        description: "User data not loaded. Please refresh the page.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsSubmitting(true)
 
-    const formData = new FormData(e.target as HTMLFormElement)
-    
     try {
-      const user = await getCurrentUser()
-
-      if (!user) {
-        toast({
-          title: "Error",
-          description: "User not found. Please log in again.",
-          variant: "destructive",
-        })
-        return
-      }
-
+      const formData = new FormData(e.target as HTMLFormElement)
+      
       const achievementsText = formData.get("achievements") as string
       const achievements = achievementsText
         .split("\n")
@@ -137,9 +160,9 @@ export default function WeeklyReports() {
         .filter(achievement => achievement.length > 0)
 
       const reportData = {
-        studentId: user.id,
-        studentName: user.name,
-        studentEmail: user.email,
+        studentId: currentUser.id,
+        studentName: currentUser.name,
+        studentEmail: currentUser.email,
         week: reports.length + 1,
         title: formData.get("title") as string,
         description: formData.get("description") as string,
@@ -147,9 +170,26 @@ export default function WeeklyReports() {
         comments: (formData.get("comments") as string) || null,
       }
 
-      const newReport = await createWeeklyReport(reportData, uploadedFile || undefined)
+      console.log('Submitting report with data:', reportData)
+      console.log('With file:', uploadedFile?.name)
 
-      setReports((prev) => [...prev, newReport])
+      const newReport = await createWeeklyReport(reportData, uploadedFile || undefined)
+      console.log('Report created successfully:', newReport)
+
+      // Normalize the new report data
+      const normalizedNewReport: WeeklyReport = {
+        ...newReport,
+        week: newReport.week_number || newReport.week || reportData.week,
+        studentId: newReport.student_id || newReport.studentId || reportData.studentId,
+        studentName: newReport.student_name || newReport.studentName || reportData.studentName,
+        studentEmail: newReport.student_email || newReport.studentEmail || reportData.studentEmail,
+        fileName: newReport.file_name || newReport.fileName,
+        fileUrl: newReport.file_url || newReport.fileUrl,
+        fileSize: newReport.file_size || newReport.fileSize,
+        submittedDate: newReport.submitted_date || newReport.submittedDate || newReport.created_at || newReport.createdAt || new Date().toISOString()
+      }
+
+      setReports((prev) => [...prev, normalizedNewReport])
       setShowForm(false)
       setUploadedFile(null)
 
@@ -163,7 +203,7 @@ export default function WeeklyReports() {
     } catch (error: any) {
       console.error('Report submission error:', error)
       toast({
-        title: "Error",
+        title: "Submission Failed",
         description: error.message || "Failed to submit report. Please try again.",
         variant: "destructive",
       })
@@ -173,11 +213,15 @@ export default function WeeklyReports() {
   }
 
   const handleDownload = (report: WeeklyReport) => {
-    if (report.file_url) {
+    const fileUrl = report.fileUrl || report.file_url
+    const fileName = report.fileName || report.file_name || `week_${report.week || 1}_report.pdf`
+    
+    if (fileUrl) {
       // Create a temporary link to download the file
       const link = document.createElement('a')
-      link.href = report.file_url
-      link.download = report.file_name || `week_${report.week_number}_report.pdf`
+      link.href = fileUrl
+      link.download = fileName
+      link.target = '_blank'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -251,14 +295,35 @@ export default function WeeklyReports() {
     }
   }
 
+  // Show loading state while data is being fetched
   if (isLoading) {
     return (
       <AuthGuard allowedRoles={["student"]}>
         <DashboardLayout>
           <div className="flex items-center justify-center h-64">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span>Loading your reports...</span>
+            </div>
+          </div>
+        </DashboardLayout>
+      </AuthGuard>
+    )
+  }
+
+  // Show error state if user is not loaded
+  if (!currentUser) {
+    return (
+      <AuthGuard allowedRoles={["student"]}>
+        <DashboardLayout>
+          <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-2 text-gray-600">Loading reports...</p>
+              <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+              <h2 className="text-xl font-semibold mb-2">Unable to Load User Data</h2>
+              <p className="text-gray-600 mb-4">Please refresh the page to try again.</p>
+              <Button onClick={() => window.location.reload()}>
+                Refresh Page
+              </Button>
             </div>
           </div>
         </DashboardLayout>
@@ -274,8 +339,14 @@ export default function WeeklyReports() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Weekly Reports</h1>
               <p className="text-gray-600">Submit and track your weekly internship progress</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Logged in as: {currentUser.name} ({currentUser.email})
+              </p>
             </div>
-            <Button onClick={() => setShowForm(!showForm)} disabled={isSubmitting}>
+            <Button 
+              onClick={() => setShowForm(!showForm)} 
+              disabled={isSubmitting}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Submit New Report
             </Button>
@@ -391,7 +462,10 @@ export default function WeeklyReports() {
                   <div className="flex gap-2">
                     <Button type="submit" disabled={isSubmitting}>
                       {isSubmitting ? (
-                        "Submitting..."
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Submitting...
+                        </>
                       ) : (
                         <>
                           <Upload className="mr-2 h-4 w-4" />
@@ -424,7 +498,7 @@ export default function WeeklyReports() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold">
-                          Week {report.week_number}: {report.title}
+                          Week {report.week || report.week_number || 1}: {report.title}
                         </h3>
                         <Badge
                           variant={getStatusBadgeVariant(report.status)}
@@ -437,7 +511,7 @@ export default function WeeklyReports() {
                       </div>
                       
                       <p className="text-sm text-gray-600 mb-2">
-                        Submitted: {formatDate(report.submitted_date)}
+                        Submitted: {formatDate(report.submittedDate || report.submitted_date)}
                       </p>
                       
                       <p className="text-sm text-gray-700 mb-3">{report.description}</p>
@@ -462,10 +536,18 @@ export default function WeeklyReports() {
                           <p className="text-sm text-gray-700">{report.feedback}</p>
                         </div>
                       )}
+
+                      {(report.fileName || report.file_name) && (
+                        <div className="mt-2">
+                          <p className="text-sm text-gray-600">
+                            📎 Attached: {report.fileName || report.file_name}
+                          </p>
+                        </div>
+                      )}
                     </div>
                     
                     <div className="flex gap-2 ml-4">
-                      {report.file_url && (
+                      {(report.fileUrl || report.file_url) && (
                         <Button variant="outline" size="sm" onClick={() => handleDownload(report)}>
                           <Download className="h-4 w-4 mr-1" />
                           Download

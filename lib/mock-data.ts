@@ -1,57 +1,107 @@
 // lib/mock-data.ts - Additional Mock Functions (Add these to your existing mock-data.ts)
 
 // Mock Reports Data
-export const getMockReports = (studentId: string) => [
-  {
-    id: 1,
-    studentId,
-    week: 1,
-    title: "Week 1 - Project Setup and Onboarding",
-    description: "Completed project setup, team introductions, and initial training sessions.",
-    achievements: [
-      "Set up development environment",
-      "Completed React basics training",
-      "Met with team members and mentor"
-    ],
-    status: "approved",
-    grade: "A",
-    submittedDate: "2024-01-08T10:00:00Z",
-    feedback: "Great start! Good documentation of setup process.",
-    fileName: "week1_report.pdf"
-  },
-  {
-    id: 2,
-    studentId,
-    week: 2,
-    title: "Week 2 - Learning Phase",
-    description: "Focused on learning new technologies and understanding project requirements.",
-    achievements: [
-      "Completed TypeScript fundamentals",
-      "Understanding project architecture",
-      "Started working on first task"
-    ],
-    status: "pending",
-    submittedDate: "2024-01-15T14:30:00Z",
-    fileName: "week2_report.pdf"
-  },
-  {
-    id: 3,
-    studentId,
-    week: 3,
-    title: "Week 3 - First Development Tasks",
-    description: "Started implementing components and working on actual project tasks.",
-    achievements: [
-      "Implemented user authentication UI",
-      "Fixed responsive design issues",
-      "Learned advanced React patterns"
-    ],
-    status: "revision_required",
-    submittedDate: "2024-01-22T09:15:00Z",
-    feedback: "Good progress, but please add more technical details about the authentication implementation.",
-    fileName: "week3_report.pdf"
-  }
-]
-
+// Mock weekly reports data for testing
+export const getMockReports = (studentId: string) => {
+  return [
+    {
+      id: 1,
+      student_id: studentId,
+      student_name: "John Doe",
+      student_email: "john.doe@charusat.edu.in",
+      week_number: 1,
+      title: "Getting Started with the Team",
+      description: "First week focused on understanding the company culture, meeting team members, and getting familiar with the development environment. Set up development tools and attended orientation sessions.",
+      achievements: [
+        "Completed onboarding process",
+        "Set up development environment",
+        "Met with team lead and assigned mentor",
+        "Reviewed project documentation"
+      ],
+      status: "approved",
+      file_name: "week1_report_john_doe.pdf",
+      file_url: "https://mock-storage.com/reports/week1_report_john_doe.pdf",
+      file_size: 245760,
+      feedback: "Good start! Make sure to ask questions when you need help.",
+      grade: "A",
+      submitted_date: "2024-07-08T10:30:00.000Z",
+      created_at: "2024-07-08T10:30:00.000Z",
+      comments: "Excited to start working on real projects!"
+    },
+    {
+      id: 2,
+      student_id: studentId,
+      student_name: "John Doe",
+      student_email: "john.doe@charusat.edu.in",
+      week_number: 2,
+      title: "Learning the Codebase",
+      description: "Spent time understanding the existing codebase, reviewing coding standards, and working on small bug fixes. Started contributing to the main project with guidance from senior developers.",
+      achievements: [
+        "Fixed 3 minor bugs in the frontend",
+        "Reviewed and understood 60% of the codebase",
+        "Implemented coding standards in practice",
+        "Participated in daily standups"
+      ],
+      status: "approved",
+      file_name: "week2_report_john_doe.pdf",
+      file_url: "https://mock-storage.com/reports/week2_report_john_doe.pdf",
+      file_size: 287456,
+      feedback: "Excellent progress on bug fixes. Your code quality is improving.",
+      grade: "A-",
+      submitted_date: "2024-07-15T14:20:00.000Z",
+      created_at: "2024-07-15T14:20:00.000Z",
+      comments: "Starting to feel more confident with the codebase."
+    },
+    {
+      id: 3,
+      student_id: studentId,
+      student_name: "John Doe",
+      student_email: "john.doe@charusat.edu.in",
+      week_number: 3,
+      title: "Feature Development",
+      description: "Worked on implementing a new user authentication feature. Collaborated with the backend team to integrate APIs and ensure proper error handling.",
+      achievements: [
+        "Implemented user login functionality",
+        "Added form validation",
+        "Integrated with backend APIs",
+        "Wrote unit tests for the feature"
+      ],
+      status: "revision_required",
+      file_name: "week3_report_john_doe.pdf",
+      file_url: "https://mock-storage.com/reports/week3_report_john_doe.pdf",
+      file_size: 324589,
+      feedback: "Good work on the feature implementation. However, please add more error handling for edge cases and improve the test coverage.",
+      grade: null,
+      submitted_date: "2024-07-22T16:45:00.000Z",
+      created_at: "2024-07-22T16:45:00.000Z",
+      comments: "Had some challenges with API integration, but learned a lot."
+    },
+    {
+      id: 4,
+      student_id: studentId,
+      student_name: "John Doe",
+      student_email: "john.doe@charusat.edu.in",
+      week_number: 4,
+      title: "Database Optimization",
+      description: "Focused on optimizing database queries and improving application performance. Learned about indexing and query optimization techniques.",
+      achievements: [
+        "Optimized 5 slow database queries",
+        "Added proper indexing to tables",
+        "Reduced page load time by 40%",
+        "Documented optimization techniques"
+      ],
+      status: "pending",
+      file_name: "week4_report_john_doe.pdf",
+      file_url: "https://mock-storage.com/reports/week4_report_john_doe.pdf",
+      file_size: 298734,
+      feedback: null,
+      grade: null,
+      submitted_date: "2024-07-29T11:15:00.000Z",
+      created_at: "2024-07-29T11:15:00.000Z",
+      comments: "Really enjoying working on performance improvements."
+    }
+  ]
+}
 // Mock Applications Data
 export const getMockApplications = (studentId: string) => [
   {
