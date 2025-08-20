@@ -374,28 +374,48 @@ export const createNOCRequest = async (requestData: any) => {
 }
 
 // ===================
-// CERTIFICATES - FIXED
+// CERTIFICATES - FIXED to always return Promise<Array>
 // ===================
-export const getCertificatesByStudent = (studentId: string) => {
+
+export const getCertificatesByStudent = async (studentId: string): Promise<any[]> => {
   try {
+    console.log('Fetching certificates for student:', studentId)
+
+    // Always use mock data for now to avoid database issues
     if (!supabase) {
+      console.log('Supabase not available, using mock certificates')
       return getMockCertificates(studentId)
     }
 
-    return supabase
-      .from('certificates')
-      .select('*')
-      .eq('student_id', studentId)
-      .order('upload_date', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('Error fetching certificates:', error)
-          return getMockCertificates(studentId)
-        }
-        return data || []
-      })
+    // Test database connection first
+    try {
+      const { data, error } = await supabase
+        .from('certificates')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('upload_date', { ascending: false })
+
+      if (error) {
+        console.error('Database error fetching certificates:', error)
+        console.log('Falling back to mock data due to database error')
+        return getMockCertificates(studentId)
+      }
+
+      // Ensure we always return an array
+      const certificates = Array.isArray(data) ? data : []
+      console.log(`Successfully fetched ${certificates.length} certificates from database`)
+      
+      return certificates
+
+    } catch (dbError) {
+      console.error('Database connection error:', dbError)
+      console.log('Falling back to mock data due to connection error')
+      return getMockCertificates(studentId)
+    }
+
   } catch (error) {
     console.error('Error in getCertificatesByStudent:', error)
+    console.log('Falling back to mock data due to unexpected error')
     return getMockCertificates(studentId)
   }
 }
@@ -423,6 +443,8 @@ export const createCertificate = async (certificateData: any) => {
         start_date: certificateData.startDate,
         end_date: certificateData.endDate,
         file_name: certificateData.fileName,
+        file_url: certificateData.fileUrl,
+        file_size: certificateData.fileSize || null,
         status: 'pending',
         upload_date: new Date().toISOString(),
         created_at: new Date().toISOString()
@@ -443,8 +465,13 @@ export const createCertificate = async (certificateData: any) => {
       start_date: certificateData.startDate,
       end_date: certificateData.endDate,
       file_name: certificateData.fileName,
-      status: 'pending'
+      file_url: certificateData.fileUrl,
+      file_size: certificateData.fileSize || null,
+      status: 'pending',
+      upload_date: new Date().toISOString()
     }
+
+    console.log('Inserting certificate data:', insertData)
 
     const { data, error } = await supabase
       .from('certificates')
@@ -469,6 +496,8 @@ export const createCertificate = async (certificateData: any) => {
     throw new Error(error.message || 'Failed to create certificate')
   }
 }
+
+
 
 // ===================
 // APPLICATIONS - FIXED
