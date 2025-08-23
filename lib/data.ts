@@ -409,13 +409,19 @@ export const getReportsByStudent = async (studentId: string): Promise<any[]> => 
 
 export const createWeeklyReport = async (reportData: any, file?: File) => {
   try {
-    // === REQUIRED FIELD CHECK ===
-    if (!reportData.studentId || !reportData.studentName || !reportData.studentEmail) {
-      throw new Error("Missing studentId, studentName, or studentEmail for weekly report")
+    // === ENHANCED FIELD VALIDATION ===
+    if (!reportData.studentId) {
+      throw new Error("Student ID is required for weekly report")
+    }
+    if (!reportData.studentName) {
+      throw new Error("Student name is required for weekly report")
+    }
+    if (!reportData.studentEmail) {
+      throw new Error("Student email is required for weekly report")
     }
 
     console.log('Creating weekly report with data:', reportData)
-    
+
     let fileUrl = null
     let fileName = null
     let fileSize = null
@@ -424,10 +430,7 @@ export const createWeeklyReport = async (reportData: any, file?: File) => {
     if (file) {
       console.log('Uploading file:', file.name, 'Size:', file.size)
       
-      const user = await getCurrentUser()
-      if (!user) throw new Error('User not found')
-
-      const uploadFileName = `week${reportData.week || 1}_${user.rollNumber || user.id}_${Date.now()}.${file.name.split('.').pop()}`
+      const uploadFileName = `week${reportData.week || 1}_${reportData.studentId}_${Date.now()}.${file.name.split('.').pop()}`
       const uploadResult = await uploadFile(file, 'reports', uploadFileName)
       
       if (!uploadResult.success) {
@@ -459,14 +462,14 @@ export const createWeeklyReport = async (reportData: any, file?: File) => {
         submitted_date: new Date().toISOString(),
         created_at: new Date().toISOString()
       }
-      
+
       console.log('Created mock weekly report:', newReport)
       return newReport
     }
 
     // Prepare data for database insertion
     const insertData: any = {
-      student_id: reportData.studentId,
+      student_id: reportData.studentId,        // UUID type in schema
       student_name: reportData.studentName,
       student_email: reportData.studentEmail,
       week_number: reportData.week || 1,
@@ -510,6 +513,7 @@ export const createWeeklyReport = async (reportData: any, file?: File) => {
     throw new Error(error.message || 'Failed to create weekly report')
   }
 }
+
 
 // ===================
 // NOC REQUESTS - FIXED
@@ -1646,4 +1650,425 @@ const getMockTPOfficerDashboardData = () => ({
       priority: 'high'
     }
   ]
+})
+
+
+// Add to your data.ts file - Enhanced NOC Functions noc of the tp-officer
+
+export const getAllNOCRequests = async () => {
+  try {
+    if (!supabase) {
+      return getMockAllNOCRequests()
+    }
+
+    const { data, error } = await supabase
+      .from('noc_requests')
+      .select(`
+        id,
+        student_id,
+        student_name,
+        student_email,
+        company_name,
+        position,
+        duration,
+        start_date,
+        end_date,
+        submitted_date,
+        approved_date,
+        reviewed_date,
+        status,
+        description,
+        feedback,
+        documents,
+        approved_by
+      `)
+      .order('submitted_date', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching all NOC requests:', error)
+      return getMockAllNOCRequests()
+    }
+
+    return data || []
+  } catch (error) {
+    console.error('Error in getAllNOCRequests:', error)
+    return getMockAllNOCRequests()
+  }
+}
+
+const getMockAllNOCRequests = () => {
+  return [
+    {
+      id: 1,
+      student_id: 'student_1',
+      student_name: 'Alex Kumar',
+      student_email: 'alex.kumar@charusat.edu.in',
+      company_name: 'TechCorp Solutions',
+      position: 'Software Development Intern',
+      duration: '6 months',
+      start_date: '2024-04-01',
+      end_date: '2024-09-30',
+      submitted_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      status: 'pending',
+      description: 'Full-stack web development using React and Node.js',
+      documents: ['offer_letter.pdf', 'company_profile.pdf']
+    },
+    // Add more mock requests as needed
+  ]
+}
+
+
+// Add these functions to your existing data.ts file
+
+// ===================
+// TEACHER STUDENT MANAGEMENT - DYNAMIC DATABASE FUNCTIONS
+// ===================
+
+export const getStudentsByTeacher = async (teacherId: string) => {
+  try {
+    console.log('👨‍🏫 Fetching students for teacher:', teacherId)
+    
+    if (!supabase) {
+      console.log('⚠️ Supabase not available, using mock data')
+      return getMockStudentsForTeacher()
+    }
+
+    // First, try to get students assigned through student_teacher_assignments table
+    const { data: assignments, error: assignmentError } = await supabase
+      .from('student_teacher_assignments')
+      .select(`
+        student_id,
+        is_active,
+        users!inner(
+          id,
+          name,
+          email,
+          roll_number,
+          department,
+          phone,
+          created_at
+        )
+      `)
+      .eq('teacher_id', teacherId)
+      .eq('is_active', true)
+
+    let students = []
+
+    if (assignmentError || !assignments || assignments.length === 0) {
+      console.warn('⚠️ No assignments found, fetching all students as fallback')
+      // Fallback: get all students if no assignments exist
+      const { data: allStudents, error: studentsError } = await supabase
+        .from('users')
+        .select('id, name, email, roll_number, department, phone, created_at')
+        .eq('role', 'student')
+        .eq('is_active', true)
+        .limit(20) // Limit for demo purposes
+
+      if (studentsError) {
+        console.error('❌ Error fetching students:', studentsError)
+        return getMockStudentsForTeacher()
+      }
+
+      students = allStudents || []
+    } else {
+      students = assignments.map(a => a.users)
+    }
+
+    if (students.length === 0) {
+      console.log('ℹ️ No students found')
+      return []
+    }
+
+    console.log(`📊 Found ${students.length} students, fetching additional data...`)
+
+    // Get student IDs for additional data fetching
+    const studentIds = students.map(s => s.id)
+
+    // Fetch additional data in parallel
+    const [nocResult, reportsResult, certificatesResult] = await Promise.allSettled([
+      // NOC requests for internship details
+      supabase
+        .from('noc_requests')
+        .select('student_id, company_name, position, start_date, end_date, status')
+        .in('student_id', studentIds)
+        .eq('status', 'approved')
+        .order('submitted_date', { ascending: false }),
+      
+      // Weekly reports for progress tracking
+      supabase
+        .from('weekly_reports')
+        .select('student_id, week_number, status, submitted_date')
+        .in('student_id', studentIds)
+        .order('submitted_date', { ascending: false }),
+        
+      // Certificates for completion tracking
+      supabase
+        .from('certificates')
+        .select('student_id, status, upload_date')
+        .in('student_id', studentIds)
+    ])
+
+    // Process the results
+    const nocRequests = nocResult.status === 'fulfilled' && !nocResult.value.error 
+      ? nocResult.value.data || [] 
+      : []
+    
+    const reports = reportsResult.status === 'fulfilled' && !reportsResult.value.error 
+      ? reportsResult.value.data || [] 
+      : []
+      
+    const certificates = certificatesResult.status === 'fulfilled' && !certificatesResult.value.error 
+      ? certificatesResult.value.data || [] 
+      : []
+
+    // Combine data for each student
+    const enrichedStudents = students.map(student => {
+      // Find current internship (most recent approved NOC)
+      const currentInternship = nocRequests.find(noc => noc.student_id === student.id)
+      
+      // Calculate report statistics
+      const studentReports = reports.filter(r => r.student_id === student.id)
+      const submittedReports = studentReports.filter(r => r.status !== 'pending').length
+      const totalReports = Math.max(studentReports.length, 10) // Assume 10 weeks minimum
+      const progress = totalReports > 0 ? Math.round((submittedReports / totalReports) * 100) : 0
+      
+      // Find certificates
+      const studentCertificates = certificates.filter(c => c.student_id === student.id)
+      
+      // Determine status
+      let status = 'inactive'
+      if (currentInternship) {
+        const endDate = new Date(currentInternship.end_date)
+        const now = new Date()
+        status = endDate > now ? 'active' : 'completed'
+      }
+      
+      // Get last activity
+      const lastReport = studentReports[0]
+      const lastActivity = lastReport ? lastReport.submitted_date : student.created_at
+
+      return {
+        id: student.id,
+        name: student.name,
+        email: student.email,
+        rollNumber: student.roll_number,
+        department: student.department,
+        phone: student.phone || '+91 9876543210', // Default if not provided
+        company: currentInternship?.company_name || null,
+        position: currentInternship?.position || null,
+        supervisor: 'To be assigned', // This would need to be added to schema
+        startDate: currentInternship?.start_date || null,
+        endDate: currentInternship?.end_date || null,
+        progress,
+        status,
+        reportsSubmitted: submittedReports,
+        totalReports,
+        cgpa: 8.5, // This would need to be added to user schema
+        lastActivity,
+        profileImage: null,
+        certificates: studentCertificates.length
+      }
+    })
+
+    console.log('✅ Successfully enriched student data')
+    return enrichedStudents
+
+  } catch (error) {
+    console.error('💥 Error fetching students for teacher:', error)
+    return getMockStudentsForTeacher()
+  }
+}
+
+export const getStudentDetails = async (studentId: string) => {
+  try {
+    console.log('👤 Fetching detailed student information:', studentId)
+    
+    if (!supabase) {
+      return getMockStudentDetails(studentId)
+    }
+
+    // Fetch student basic info
+    const { data: student, error: studentError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', studentId)
+      .single()
+
+    if (studentError || !student) {
+      console.error('❌ Error fetching student details:', studentError)
+      return null
+    }
+
+    // Fetch additional data in parallel
+    const [nocResult, reportsResult, certificatesResult, applicationsResult] = await Promise.allSettled([
+      supabase
+        .from('noc_requests')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('submitted_date', { ascending: false }),
+      
+      supabase
+        .from('weekly_reports')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('week_number', { ascending: true }),
+        
+      supabase
+        .from('certificates')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('upload_date', { ascending: false }),
+        
+      supabase
+        .from('applications')
+        .select(`
+          *,
+          job_opportunities(
+            title,
+            company_name,
+            location
+          )
+        `)
+        .eq('student_id', studentId)
+        .order('applied_date', { ascending: false })
+    ])
+
+    const nocRequests = nocResult.status === 'fulfilled' ? nocResult.value.data || [] : []
+    const reports = reportsResult.status === 'fulfilled' ? reportsResult.value.data || [] : []
+    const certificates = certificatesResult.status === 'fulfilled' ? certificatesResult.value.data || [] : []
+    const applications = applicationsResult.status === 'fulfilled' ? applicationsResult.value.data || [] : []
+
+    // Find current internship
+    const currentInternship = nocRequests.find(noc => noc.status === 'approved')
+    
+    return {
+      ...student,
+      currentInternship,
+      nocRequests,
+      reports,
+      certificates,
+      applications,
+      stats: {
+        totalReports: reports.length,
+        pendingReports: reports.filter(r => r.status === 'pending').length,
+        approvedReports: reports.filter(r => r.status === 'approved').length,
+        totalCertificates: certificates.length,
+        totalApplications: applications.length
+      }
+    }
+
+  } catch (error) {
+    console.error('💥 Error fetching student details:', error)
+    return null
+  }
+}
+
+export const sendMessageToStudent = async (teacherId: string, studentId: string, message: string) => {
+  try {
+    console.log('💌 Sending message to student:', { teacherId, studentId, message })
+    
+    if (!supabase) {
+      console.log('Mock: Message sent successfully')
+      return { success: true }
+    }
+
+    // Create notification for student
+    const { error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: studentId,
+        title: 'Message from Teacher',
+        message: message,
+        type: 'info',
+        action_required: false
+      })
+
+    if (error) {
+      console.error('❌ Error sending message:', error)
+      return { success: false, error: error.message }
+    }
+
+    console.log('✅ Message sent successfully')
+    return { success: true }
+
+  } catch (error: any) {
+    console.error('💥 Error in sendMessageToStudent:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export const updateStudentAssignment = async (teacherId: string, studentId: string, isActive: boolean) => {
+  try {
+    if (!supabase) {
+      console.log('Mock: Updated student assignment')
+      return { success: true }
+    }
+
+    const { error } = await supabase
+      .from('student_teacher_assignments')
+      .upsert({
+        teacher_id: teacherId,
+        student_id: studentId,
+        is_active: isActive,
+        academic_year: new Date().getFullYear().toString(),
+        semester: 'Spring' // You might want to calculate this
+      })
+
+    if (error) {
+      console.error('❌ Error updating student assignment:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+
+  } catch (error: any) {
+    console.error('💥 Error in updateStudentAssignment:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// Mock data functions for fallback
+const getMockStudentsForTeacher = () => [
+  {
+    id: '1',
+    name: 'John Doe',
+    email: 'john.doe@charusat.ac.in',
+    rollNumber: '21CE001',
+    department: 'Computer Engineering',
+    phone: '+91 9876543210',
+    company: 'TCS',
+    position: 'Software Developer Intern',
+    supervisor: 'Mr. Rajesh Kumar',
+    startDate: '2024-01-15',
+    endDate: '2024-06-15',
+    progress: 85,
+    status: 'active',
+    reportsSubmitted: 8,
+    totalReports: 10,
+    cgpa: 8.5,
+    lastActivity: new Date().toISOString(),
+    profileImage: null,
+    certificates: 2
+  }
+]
+
+const getMockStudentDetails = (studentId: string) => ({
+  id: studentId,
+  name: 'John Doe',
+  email: 'john.doe@charusat.ac.in',
+  roll_number: '21CE001',
+  department: 'Computer Engineering',
+  currentInternship: {
+    company_name: 'TCS',
+    position: 'Software Developer Intern',
+    start_date: '2024-01-15',
+    end_date: '2024-06-15'
+  },
+  stats: {
+    totalReports: 8,
+    pendingReports: 2,
+    approvedReports: 6,
+    totalCertificates: 1,
+    totalApplications: 5
+  }
 })

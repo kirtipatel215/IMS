@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Search,
   Filter,
@@ -29,136 +30,86 @@ import {
   Send,
   Star,
   GraduationCap,
+  AlertCircle,
+  Loader2
 } from "lucide-react"
 import { useState, useEffect } from "react"
-import { getCurrentUser } from "@/lib/auth"
+import { getCurrentUser, getStudentsByTeacher, getStudentDetails, sendMessageToStudent } from "@/lib/data"
 import { toast } from "sonner"
 
-// Mock data - replace with actual API calls
-const mockStudents = [
-  {
-    id: 1,
-    name: "John Doe",
-    email: "john.doe@charusat.ac.in",
-    rollNumber: "21CE001",
-    department: "Computer Engineering",
-    phone: "+91 9876543210",
-    company: "TCS",
-    position: "Software Developer Intern",
-    supervisor: "Mr. Rajesh Kumar",
-    startDate: "2024-01-15",
-    endDate: "2024-06-15",
-    progress: 85,
-    status: "active",
-    reportsSubmitted: 8,
-    totalReports: 10,
-    cgpa: 8.5,
-    lastActivity: "2024-01-20T10:30:00Z",
-    profileImage: null,
-  },
-  {
-    id: 2,
-    name: "Jane Smith",
-    email: "jane.smith@charusat.ac.in",
-    rollNumber: "21CE002",
-    department: "Computer Engineering",
-    phone: "+91 9876543211",
-    company: "Infosys",
-    position: "Full Stack Developer Intern",
-    supervisor: "Ms. Priya Sharma",
-    startDate: "2024-01-10",
-    endDate: "2024-06-10",
-    progress: 92,
-    status: "active",
-    reportsSubmitted: 9,
-    totalReports: 10,
-    cgpa: 9.1,
-    lastActivity: "2024-01-21T14:20:00Z",
-    profileImage: null,
-  },
-  {
-    id: 3,
-    name: "Mike Johnson",
-    email: "mike.johnson@charusat.ac.in",
-    rollNumber: "21CE003",
-    department: "Computer Engineering",
-    phone: "+91 9876543212",
-    company: "Wipro",
-    position: "Data Analyst Intern",
-    supervisor: "Dr. Amit Patel",
-    startDate: "2024-01-05",
-    endDate: "2024-06-05",
-    progress: 78,
-    status: "active",
-    reportsSubmitted: 7,
-    totalReports: 10,
-    cgpa: 8.2,
-    lastActivity: "2024-01-19T09:15:00Z",
-    profileImage: null,
-  },
-  {
-    id: 4,
-    name: "Sarah Wilson",
-    email: "sarah.wilson@charusat.ac.in",
-    rollNumber: "21CE004",
-    department: "Computer Engineering",
-    phone: "+91 9876543213",
-    company: "Microsoft",
-    position: "Software Engineer Intern",
-    supervisor: "Mr. Vikram Singh",
-    startDate: "2023-12-01",
-    endDate: "2024-05-01",
-    progress: 100,
-    status: "completed",
-    reportsSubmitted: 10,
-    totalReports: 10,
-    cgpa: 9.3,
-    lastActivity: "2024-01-18T16:45:00Z",
-    profileImage: null,
-  },
-  {
-    id: 5,
-    name: "Alex Brown",
-    email: "alex.brown@charusat.ac.in",
-    rollNumber: "21CE005",
-    department: "Computer Engineering",
-    phone: "+91 9876543214",
-    company: "Google",
-    position: "ML Engineer Intern",
-    supervisor: "Ms. Neha Gupta",
-    startDate: "2024-02-01",
-    endDate: "2024-07-01",
-    progress: 45,
-    status: "active",
-    reportsSubmitted: 4,
-    totalReports: 10,
-    cgpa: 8.8,
-    lastActivity: "2024-01-22T11:30:00Z",
-    profileImage: null,
-  },
-]
+interface Student {
+  id: string
+  name: string
+  email: string
+  rollNumber: string
+  department: string
+  phone: string
+  company?: string
+  position?: string
+  supervisor?: string
+  startDate?: string
+  endDate?: string
+  progress: number
+  status: 'active' | 'completed' | 'inactive'
+  reportsSubmitted: number
+  totalReports: number
+  cgpa: number
+  lastActivity: string
+  profileImage?: string
+  certificates: number
+}
 
 export default function TeacherStudentsPage() {
-  const [user, setUser] = useState(null)
-  const [students, setStudents] = useState(mockStudents)
-  const [filteredStudents, setFilteredStudents] = useState(mockStudents)
+  const [user, setUser] = useState<any>(null)
+  const [students, setStudents] = useState<Student[]>([])
+  const [filteredStudents, setFilteredStudents] = useState<Student[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [companyFilter, setCompanyFilter] = useState("all")
   const [progressFilter, setProgressFilter] = useState("all")
-  const [selectedStudent, setSelectedStudent] = useState(null)
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [showStudentDialog, setShowStudentDialog] = useState(false)
   const [showMessageDialog, setShowMessageDialog] = useState(false)
   const [messageText, setMessageText] = useState("")
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [sendingMessage, setSendingMessage] = useState(false)
+  const [studentDetails, setStudentDetails] = useState<any>(null)
+  const [loadingDetails, setLoadingDetails] = useState(false)
 
   useEffect(() => {
-    const currentUser = getCurrentUser()
-    setUser(currentUser)
-    setLoading(false)
+    loadData()
   }, [])
 
   useEffect(() => {
+    filterStudents()
+  }, [students, searchTerm, statusFilter, companyFilter, progressFilter])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      console.log('🔄 Loading teacher data and students...')
+      
+      const currentUser = await getCurrentUser()
+      setUser(currentUser)
+      
+      if (currentUser?.id) {
+        const studentsData = await getStudentsByTeacher(currentUser.id)
+        setStudents(studentsData)
+        console.log('📊 Loaded students:', studentsData.length)
+      }
+    } catch (error: any) {
+      console.error('💥 Error loading data:', error)
+      setError('Failed to load students data. Please try again.')
+      toast.error('Failed to load students')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const filterStudents = () => {
     const filtered = students.filter((student) => {
       const matchesSearch =
         student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -166,7 +117,9 @@ export default function TeacherStudentsPage() {
         (student.company && student.company.toLowerCase().includes(searchTerm.toLowerCase()))
 
       const matchesStatus = statusFilter === "all" || student.status === statusFilter
+
       const matchesCompany = companyFilter === "all" || student.company === companyFilter
+
       const matchesProgress =
         progressFilter === "all" ||
         (progressFilter === "high" && student.progress >= 80) ||
@@ -175,9 +128,8 @@ export default function TeacherStudentsPage() {
 
       return matchesSearch && matchesStatus && matchesCompany && matchesProgress
     })
-
     setFilteredStudents(filtered)
-  }, [students, searchTerm, statusFilter, companyFilter, progressFilter])
+  }
 
   const clearFilters = () => {
     setSearchTerm("")
@@ -186,7 +138,7 @@ export default function TeacherStudentsPage() {
     setProgressFilter("all")
   }
 
-  const getStatusColor = (status) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case "active":
         return "bg-gradient-to-r from-emerald-100 to-green-100 text-emerald-700 border-emerald-200"
@@ -199,13 +151,13 @@ export default function TeacherStudentsPage() {
     }
   }
 
-  const getProgressColor = (progress) => {
+  const getProgressColor = (progress: number) => {
     if (progress >= 80) return "text-emerald-600"
     if (progress >= 50) return "text-yellow-600"
     return "text-red-600"
   }
 
-  const getGradientAvatar = (name, index) => {
+  const getGradientAvatar = (name: string, index: number) => {
     const gradients = [
       "bg-gradient-to-br from-blue-400 to-purple-500",
       "bg-gradient-to-br from-emerald-400 to-teal-500",
@@ -231,7 +183,7 @@ ${filteredStudents
         student.position || "N/A"
       },${student.progress}%,${student.status},${student.reportsSubmitted}/${student.totalReports},${student.cgpa},${
         student.lastActivity
-      }`,
+      }`
   )
   .join("\n")}`
 
@@ -245,43 +197,68 @@ ${filteredStudents
     toast.success("CSV report downloaded successfully!")
   }
 
-  const handleViewStudent = (student) => {
+  const handleViewStudent = async (student: Student) => {
     setSelectedStudent(student)
     setShowStudentDialog(true)
+    setLoadingDetails(true)
+    
+    try {
+      const details = await getStudentDetails(student.id)
+      setStudentDetails(details)
+    } catch (error) {
+      console.error('Error loading student details:', error)
+      toast.error('Failed to load student details')
+    } finally {
+      setLoadingDetails(false)
+    }
   }
 
-  const handleSendMessage = (student) => {
+  const handleSendMessage = (student: Student) => {
     setSelectedStudent(student)
     setMessageText("")
     setShowMessageDialog(true)
   }
 
-  const handleSendMessageSubmit = () => {
+  const handleSendMessageSubmit = async () => {
     if (!messageText.trim()) {
       toast.error("Please enter a message")
       return
     }
 
-    // Here you would typically send the message via API
-    toast.success(`Message sent to ${selectedStudent.name}`)
-    setShowMessageDialog(false)
-    setMessageText("")
-    setSelectedStudent(null)
+    if (!selectedStudent || !user?.id) {
+      toast.error("Missing required information")
+      return
+    }
+
+    try {
+      setSendingMessage(true)
+      
+      const result = await sendMessageToStudent(user.id, selectedStudent.id, messageText)
+      
+      if (result.success) {
+        toast.success(`Message sent to ${selectedStudent.name}`)
+        setShowMessageDialog(false)
+        setMessageText("")
+        setSelectedStudent(null)
+      } else {
+        toast.error(result.error || 'Failed to send message')
+      }
+    } catch (error) {
+      console.error('Error sending message:', error)
+      toast.error('Failed to send message')
+    } finally {
+      setSendingMessage(false)
+    }
   }
 
   if (loading) {
     return (
       <AuthGuard allowedRoles={["teacher"]}>
-        <DashboardLayout role="teacher">
-          <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen">
-            <div className="animate-pulse space-y-6">
-              <div className="h-8 w-64 bg-gray-200 rounded mb-2"></div>
-              <div className="h-4 w-96 bg-gray-200 rounded"></div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-24 md:h-32 bg-gray-200 rounded-2xl"></div>
-                ))}
-              </div>
+        <DashboardLayout>
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+              <p className="text-sm text-gray-600">Loading students data...</p>
             </div>
           </div>
         </DashboardLayout>
@@ -291,122 +268,128 @@ ${filteredStudents
 
   return (
     <AuthGuard allowedRoles={["teacher"]}>
-      <DashboardLayout role="teacher">
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-          <div className="p-4 md:p-6 space-y-6 md:space-y-8">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
-                    <Users className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                      My Students
-                    </h1>
-                    <p className="text-gray-600 text-sm md:text-lg">
-                      Monitor and guide your assigned students' internship progress
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <Button
-                  onClick={handleDownloadCSV}
-                  className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+      <DashboardLayout>
+        <div className="container mx-auto p-6 space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">My Students</h1>
+              <p className="text-gray-600">Monitor and guide your assigned students' internship progress</p>
+              {user && (
+                <p className="text-sm text-blue-600 mt-1">
+                  Logged in as: {user.name} ({user.email})
+                </p>
+              )}
+            </div>
+            <Button onClick={handleDownloadCSV} disabled={filteredStudents.length === 0}>
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
+
+          {/* Error Alert */}
+          {error && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                {error}
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={loadData}
+                  className="ml-2"
                 >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export CSV
+                  Try Again
                 </Button>
-              </div>
-            </div>
+              </AlertDescription>
+            </Alert>
+          )}
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-              {[
-                {
-                  title: "Total Students",
-                  value: students.length,
-                  icon: Users,
-                  color: "blue",
-                  subtitle: "Under your guidance",
-                },
-                {
-                  title: "Active Internships",
-                  value: students.filter((s) => s.status === "active").length,
-                  icon: TrendingUp,
-                  color: "emerald",
-                  subtitle: "Currently ongoing",
-                },
-                {
-                  title: "Completed",
-                  value: students.filter((s) => s.status === "completed").length,
-                  icon: Award,
-                  color: "purple",
-                  subtitle: "Successfully finished",
-                },
-                {
-                  title: "Avg Progress",
-                  value: `${Math.round(students.reduce((acc, s) => acc + s.progress, 0) / students.length)}%`,
-                  icon: FileText,
-                  color: "orange",
-                  subtitle: "Overall completion",
-                },
-              ].map((stat, index) => (
-                <Card
-                  key={index}
-                  className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300"
-                >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-xs md:text-sm font-medium text-gray-600">{stat.title}</CardTitle>
-                    <div
-                      className={`w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-${stat.color}-100 to-${stat.color}-200 flex items-center justify-center`}
-                    >
-                      <stat.icon className={`h-4 w-4 md:h-5 md:w-5 text-${stat.color}-600`} />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className={`text-xl md:text-3xl font-bold text-${stat.color}-600 mb-1`}>{stat.value}</div>
-                    <p className="text-xs text-gray-500">{stat.subtitle}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              {
+                title: "Total Students",
+                value: students.length,
+                icon: Users,
+                color: "blue",
+                subtitle: "Under your guidance",
+              },
+              {
+                title: "Active Internships",
+                value: students.filter((s) => s.status === "active").length,
+                icon: TrendingUp,
+                color: "emerald",
+                subtitle: "Currently ongoing",
+              },
+              {
+                title: "Completed",
+                value: students.filter((s) => s.status === "completed").length,
+                icon: Award,
+                color: "purple",
+                subtitle: "Successfully finished",
+              },
+              {
+                title: "Avg Progress",
+                value: students.length > 0 
+                  ? `${Math.round(students.reduce((acc, s) => acc + s.progress, 0) / students.length)}%`
+                  : "0%",
+                icon: FileText,
+                color: "orange",
+                subtitle: "Overall completion",
+              },
+            ].map((stat, index) => (
+              <Card key={index} className="hover:shadow-md transition-shadow">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
+                  <stat.icon className={`h-4 w-4 text-${stat.color}-500`} />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stat.value}</div>
+                  <p className="text-xs text-muted-foreground">{stat.subtitle}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
 
-            {/* Filters */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div className="flex items-center space-x-3">
-                    <Filter className="h-5 w-5 text-blue-600" />
-                    <CardTitle className="text-lg">Filters & Search</CardTitle>
-                    {activeFiltersCount > 0 && (
-                      <Badge className="bg-blue-100 text-blue-700">{activeFiltersCount} active</Badge>
-                    )}
-                  </div>
+          {/* Filters */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Filter className="w-5 h-5" />
+                  Filters & Search
                   {activeFiltersCount > 0 && (
-                    <Button variant="outline" size="sm" onClick={clearFilters}>
-                      <X className="h-4 w-4 mr-1" />
-                      Clear All
-                    </Button>
+                    <Badge variant="secondary" className="ml-2">
+                      {activeFiltersCount} active
+                    </Badge>
                   )}
+                </CardTitle>
+                {activeFiltersCount > 0 && (
+                  <Button variant="outline" size="sm" onClick={clearFilters}>
+                    <X className="w-4 h-4 mr-1" />
+                    Clear All
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="search">Search Students</Label>
+                  <Input
+                    id="search"
+                    placeholder="Search by name, roll number, or company..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                    <Input
-                      placeholder="Search students..."
-                      className="pl-10"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                  </div>
+                
+                <div className="space-y-2">
+                  <Label>Status</Label>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Filter by status" />
+                      <SelectValue placeholder="All Status" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Status</SelectItem>
@@ -415,9 +398,13 @@ ${filteredStudents
                       <SelectItem value="inactive">Inactive</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Company</Label>
                   <Select value={companyFilter} onValueChange={setCompanyFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Filter by company" />
+                      <SelectValue placeholder="All Companies" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Companies</SelectItem>
@@ -428,9 +415,13 @@ ${filteredStudents
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Progress</Label>
                   <Select value={progressFilter} onValueChange={setProgressFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Filter by progress" />
+                      <SelectValue placeholder="All Progress" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Progress</SelectItem>
@@ -440,301 +431,354 @@ ${filteredStudents
                     </SelectContent>
                   </Select>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </CardContent>
+          </Card>
 
-            {/* Students List */}
-            <div className="space-y-4">
-              {filteredStudents.length === 0 ? (
-                <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                  <CardContent className="p-8 md:p-12 text-center">
-                    <Users className="h-12 w-12 md:h-16 md:w-16 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg md:text-xl font-semibold text-gray-600 mb-2">No students found</h3>
-                    <p className="text-gray-500">Try adjusting your search criteria or filters</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                filteredStudents.map((student, index) => (
-                  <Card
-                    key={student.id}
-                    className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300"
-                  >
-                    <CardContent className="p-4 md:p-6">
-                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 md:gap-4 mb-4">
-                            <div
-                              className={`w-12 h-12 md:w-16 md:h-16 ${getGradientAvatar(
-                                student.name,
-                                index,
-                              )} rounded-2xl flex items-center justify-center shadow-lg`}
-                            >
-                              <span className="text-white font-bold text-sm md:text-lg">
-                                {student.name
-                                  .split(" ")
-                                  .map((n) => n[0])
-                                  .join("")}
-                              </span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
-                                <h3 className="text-lg md:text-xl font-bold text-gray-900 truncate">{student.name}</h3>
-                                <Badge className={getStatusColor(student.status)}>{student.status}</Badge>
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 md:gap-2 text-xs md:text-sm text-gray-600">
-                                <div className="flex items-center gap-2">
-                                  <GraduationCap className="h-3 w-3 md:h-4 md:w-4" />
-                                  <span className="truncate">
-                                    {student.rollNumber} • {student.department}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Mail className="h-3 w-3 md:h-4 md:w-4" />
-                                  <span className="truncate">{student.email}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Phone className="h-3 w-3 md:h-4 md:w-4" />
-                                  <span>{student.phone}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Star className="h-3 w-3 md:h-4 md:w-4" />
-                                  <span>CGPA: {student.cgpa}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-4">
-                            <div className="space-y-3">
-                              <div>
-                                <p className="text-sm font-semibold text-gray-700 mb-1">Current Internship</p>
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Building className="h-4 w-4 text-blue-600" />
-                                  <span className="font-medium text-gray-900">{student.company}</span>
-                                </div>
-                                <p className="text-sm text-gray-600">{student.position}</p>
-                                <p className="text-xs text-gray-500">Supervisor: {student.supervisor}</p>
-                              </div>
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs text-gray-500">
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  <span>Start: {new Date(student.startDate).toLocaleDateString()}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  <span>End: {new Date(student.endDate).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-3">
-                              <div>
-                                <div className="flex items-center justify-between mb-2">
-                                  <p className="text-sm font-semibold text-gray-700">Progress</p>
-                                  <span className={`text-lg font-bold ${getProgressColor(student.progress)}`}>
-                                    {student.progress}%
-                                  </span>
-                                </div>
-                                <Progress value={student.progress} className="h-3 mb-2" />
-                                <div className="flex flex-col sm:flex-row sm:justify-between gap-1 text-xs text-gray-500">
-                                  <span>
-                                    Reports: {student.reportsSubmitted}/{student.totalReports}
-                                  </span>
-                                  <span>Last activity: {new Date(student.lastActivity).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
+          {/* Students List */}
+          <div className="space-y-4">
+            {filteredStudents.length === 0 ? (
+              <Card>
+                <CardContent className="flex items-center justify-center h-32">
+                  <div className="text-center">
+                    <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500 mb-2">No students found</p>
+                    <p className="text-sm text-gray-400">
+                      Try adjusting your search criteria or filters
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              filteredStudents.map((student, index) => (
+                <Card key={student.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex flex-col lg:flex-row lg:items-center gap-6">
+                      {/* Student Avatar & Basic Info */}
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold ${getGradientAvatar(student.name, index)}`}>
+                          {student.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")}
                         </div>
-
-                        <div className="flex flex-row lg:flex-col gap-2 lg:ml-6">
-                          <Button size="sm" onClick={() => handleViewStudent(student)} className="flex-1 lg:flex-none">
-                            <Eye className="h-4 w-4 mr-2" />
-                            <span className="hidden sm:inline">View Details</span>
-                            <span className="sm:hidden">View</span>
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleSendMessage(student)}
-                            className="flex-1 lg:flex-none"
-                          >
-                            <MessageSquare className="h-4 w-4 mr-2" />
-                            <span className="hidden sm:inline">Send Message</span>
-                            <span className="sm:hidden">Message</span>
-                          </Button>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold text-lg">{student.name}</h3>
+                            <Badge className={getStatusColor(student.status)}>
+                              {student.status}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600">{student.rollNumber} • {student.department}</p>
+                          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                            <div className="flex items-center gap-1">
+                              <Mail className="w-4 h-4" />
+                              {student.email}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Phone className="w-4 h-4" />
+                              {student.phone}
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-500 mt-1">
+                            CGPA: {student.cgpa}
+                          </p>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
 
-            {/* Student Details Dialog */}
-            <Dialog open={showStudentDialog} onOpenChange={setShowStudentDialog}>
-              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-3">
-                    <div
-                      className={`w-12 h-12 ${getGradientAvatar(
-                        selectedStudent?.name || "",
-                        0,
-                      )} rounded-xl flex items-center justify-center`}
-                    >
-                      <span className="text-white font-bold">
-                        {selectedStudent?.name
-                          ?.split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </span>
-                    </div>
-                    {selectedStudent?.name} - Detailed View
-                  </DialogTitle>
-                  <DialogDescription>Complete information about the student's internship progress</DialogDescription>
-                </DialogHeader>
-                {selectedStudent && (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg">Personal Information</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Name:</span>
-                            <span className="font-medium">{selectedStudent.name}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Roll Number:</span>
-                            <span className="font-medium">{selectedStudent.rollNumber}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Department:</span>
-                            <span className="font-medium">{selectedStudent.department}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Email:</span>
-                            <span className="font-medium text-sm">{selectedStudent.email}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Phone:</span>
-                            <span className="font-medium">{selectedStudent.phone}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">CGPA:</span>
-                            <span className="font-medium">{selectedStudent.cgpa}</span>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg">Internship Details</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Company:</span>
-                            <span className="font-medium">{selectedStudent.company}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Position:</span>
-                            <span className="font-medium">{selectedStudent.position}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Supervisor:</span>
-                            <span className="font-medium">{selectedStudent.supervisor}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Start Date:</span>
-                            <span className="font-medium">
-                              {new Date(selectedStudent.startDate).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">End Date:</span>
-                            <span className="font-medium">
-                              {new Date(selectedStudent.endDate).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Status:</span>
-                            <Badge className={getStatusColor(selectedStudent.status)}>{selectedStudent.status}</Badge>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-lg">Progress Overview</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <div>
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="font-medium">Overall Progress</span>
-                              <span className={`text-xl font-bold ${getProgressColor(selectedStudent.progress)}`}>
-                                {selectedStudent.progress}%
-                              </span>
-                            </div>
-                            <Progress value={selectedStudent.progress} className="h-4" />
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                            <div className="text-center p-4 bg-blue-50 rounded-lg">
-                              <div className="text-2xl font-bold text-blue-600">{selectedStudent.reportsSubmitted}</div>
-                              <div className="text-sm text-gray-600">Reports Submitted</div>
-                            </div>
-                            <div className="text-center p-4 bg-emerald-50 rounded-lg">
-                              <div className="text-2xl font-bold text-emerald-600">{selectedStudent.totalReports}</div>
-                              <div className="text-sm text-gray-600">Total Reports Required</div>
-                            </div>
-                            <div className="text-center p-4 bg-purple-50 rounded-lg">
-                              <div className="text-2xl font-bold text-purple-600">
-                                {Math.round((selectedStudent.reportsSubmitted / selectedStudent.totalReports) * 100)}%
+                      {/* Internship Info */}
+                      <div className="flex-1">
+                        {student.company ? (
+                          <div className="space-y-2">
+                            <h4 className="font-medium text-gray-900">Current Internship</h4>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Building className="w-4 h-4 text-gray-400" />
+                                <span className="font-medium">{student.company}</span>
                               </div>
-                              <div className="text-sm text-gray-600">Completion Rate</div>
+                              <p className="text-sm text-gray-600">{student.position}</p>
+                              <p className="text-sm text-gray-500">Supervisor: {student.supervisor}</p>
+                              <div className="flex items-center gap-4 text-sm text-gray-500">
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="w-4 h-4" />
+                                  Start: {student.startDate ? new Date(student.startDate).toLocaleDateString() : 'N/A'}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="w-4 h-4" />
+                                  End: {student.endDate ? new Date(student.endDate).toLocaleDateString() : 'N/A'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-gray-500 text-sm">
+                            No active internship
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Progress & Stats */}
+                      <div className="space-y-3">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium">Progress</span>
+                            <span className={`text-sm font-semibold ${getProgressColor(student.progress)}`}>
+                              {student.progress}%
+                            </span>
+                          </div>
+                          <Progress value={student.progress} className="w-32" />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Reports: {student.reportsSubmitted}/{student.totalReports}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Last activity: {new Date(student.lastActivity).toLocaleDateString()}
+                        </p>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex flex-col gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleViewStudent(student)}
+                          className="flex-1 lg:flex-none"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View Details
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleSendMessage(student)}
+                          className="flex-1 lg:flex-none"
+                        >
+                          <MessageSquare className="w-4 h-4 mr-1" />
+                          Send Message
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+
+          {/* Student Details Dialog */}
+          <Dialog open={showStudentDialog} onOpenChange={setShowStudentDialog}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  {selectedStudent && (
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${getGradientAvatar(selectedStudent.name, 0)}`}>
+                      {selectedStudent.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .join("")}
+                    </div>
+                  )}
+                  <div>
+                    <DialogTitle>{selectedStudent?.name} - Detailed View</DialogTitle>
+                    <DialogDescription>
+                      Complete information about the student's internship progress
+                    </DialogDescription>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              {loadingDetails ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                  <span>Loading student details...</span>
+                </div>
+              ) : (
+                selectedStudent && (
+                  <div className="space-y-6">
+                    {/* Personal Information */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3">Personal Information</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="font-medium">Name:</span>
+                            <span>{selectedStudent.name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-medium">Roll Number:</span>
+                            <span>{selectedStudent.rollNumber}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-medium">Department:</span>
+                            <span>{selectedStudent.department}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="font-medium">Email:</span>
+                            <span>{selectedStudent.email}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-medium">Phone:</span>
+                            <span>{selectedStudent.phone}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-medium">CGPA:</span>
+                            <span>{selectedStudent.cgpa}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Internship Details */}
+                    {selectedStudent.company && (
+                      <div>
+                        <h3 className="text-lg font-semibold mb-3">Internship Details</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="font-medium">Company:</span>
+                              <span>{selectedStudent.company}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="font-medium">Position:</span>
+                              <span>{selectedStudent.position}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="font-medium">Supervisor:</span>
+                              <span>{selectedStudent.supervisor}</span>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="font-medium">Start Date:</span>
+                              <span>{selectedStudent.startDate ? new Date(selectedStudent.startDate).toLocaleDateString() : 'N/A'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="font-medium">End Date:</span>
+                              <span>{selectedStudent.endDate ? new Date(selectedStudent.endDate).toLocaleDateString() : 'N/A'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="font-medium">Status:</span>
+                              <Badge className={getStatusColor(selectedStudent.status)}>
+                                {selectedStudent.status}
+                              </Badge>
                             </div>
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
-              </DialogContent>
-            </Dialog>
+                      </div>
+                    )}
 
-            {/* Send Message Dialog */}
-            <Dialog open={showMessageDialog} onOpenChange={setShowMessageDialog}>
-              <DialogContent className="max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>Send Message to {selectedStudent?.name}</DialogTitle>
-                  <DialogDescription>Send a message or feedback to the student</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="message">Message</Label>
-                    <Textarea
-                      id="message"
-                      placeholder="Type your message here..."
-                      value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
-                      rows={5}
-                    />
+                    {/* Progress Overview */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3">Progress Overview</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-blue-600">{selectedStudent.progress}%</div>
+                            <p className="text-sm text-gray-600">Overall Progress</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-green-600">{selectedStudent.reportsSubmitted}</div>
+                            <p className="text-sm text-gray-600">Reports Submitted</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-purple-600">{selectedStudent.totalReports}</div>
+                            <p className="text-sm text-gray-600">Total Reports Required</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-orange-600">{selectedStudent.certificates}</div>
+                            <p className="text-sm text-gray-600">Certificates</p>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </div>
+
+                    {/* Additional Statistics from studentDetails */}
+                    {studentDetails?.stats && (
+                      <div>
+                        <h3 className="text-lg font-semibold mb-3">Detailed Statistics</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="bg-blue-50 p-3 rounded-lg">
+                            <div className="font-semibold text-blue-700">{studentDetails.stats.totalApplications}</div>
+                            <div className="text-blue-600">Applications</div>
+                          </div>
+                          <div className="bg-yellow-50 p-3 rounded-lg">
+                            <div className="font-semibold text-yellow-700">{studentDetails.stats.pendingReports}</div>
+                            <div className="text-yellow-600">Pending Reviews</div>
+                          </div>
+                          <div className="bg-green-50 p-3 rounded-lg">
+                            <div className="font-semibold text-green-700">{studentDetails.stats.approvedReports}</div>
+                            <div className="text-green-600">Approved Reports</div>
+                          </div>
+                          <div className="bg-purple-50 p-3 rounded-lg">
+                            <div className="font-semibold text-purple-700">{studentDetails.stats.totalCertificates}</div>
+                            <div className="text-purple-600">Total Certificates</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-2">
-                    <Button variant="outline" onClick={() => setShowMessageDialog(false)} className="w-full sm:w-auto">
-                      Cancel
-                    </Button>
-                    <Button onClick={handleSendMessageSubmit} className="w-full sm:w-auto">
-                      <Send className="h-4 w-4 mr-2" />
-                      Send Message
-                    </Button>
-                  </div>
+                )
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Send Message Dialog */}
+          <Dialog open={showMessageDialog} onOpenChange={setShowMessageDialog}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Send Message to {selectedStudent?.name}</DialogTitle>
+                <DialogDescription>
+                  Send a message or feedback to the student
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="message">Message</Label>
+                  <Textarea
+                    id="message"
+                    placeholder="Type your message here..."
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    rows={5}
+                  />
                 </div>
-              </DialogContent>
-            </Dialog>
-          </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowMessageDialog(false)} 
+                    className="w-full sm:w-auto"
+                    disabled={sendingMessage}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={handleSendMessageSubmit} 
+                    className="w-full sm:w-auto"
+                    disabled={sendingMessage || !messageText.trim()}
+                  >
+                    {sendingMessage ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" />
+                        Send Message
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </DashboardLayout>
     </AuthGuard>

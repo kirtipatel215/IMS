@@ -298,7 +298,7 @@ export default function WeeklyReports() {
   // Show loading state while data is being fetched
   if (isLoading) {
     return (
-      <AuthGuard allowedRoles={["student"]}>
+      <AuthGuard allowedRoles={["teacher"]}>
         <DashboardLayout>
           <div className="flex items-center justify-center h-64">
             <div className="flex items-center gap-2">
@@ -314,7 +314,7 @@ export default function WeeklyReports() {
   // Show error state if user is not loaded
   if (!currentUser) {
     return (
-      <AuthGuard allowedRoles={["student"]}>
+      <AuthGuard allowedRoles={["teacher"]}>
         <DashboardLayout>
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
@@ -332,7 +332,7 @@ export default function WeeklyReports() {
   }
 
   return (
-    <AuthGuard allowedRoles={["student"]}>
+    <AuthGuard allowedRoles={["teacher"]}>
       <DashboardLayout>
         <div className="space-y-6">
           <div className="flex justify-between items-center">
