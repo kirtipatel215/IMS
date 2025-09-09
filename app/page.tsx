@@ -1,4 +1,3 @@
-// app/auth/page.tsx - COMPLETELY FIXED
 "use client"
 
 import { Button } from "@/components/ui/button"

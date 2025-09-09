@@ -1,5 +1,5 @@
-
 "use client"
+
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { onAuthStateChange, getCurrentUser, type AppUser } from '@/lib/auth-supabase'
 import { supabase } from '@/lib/supabase'

@@ -1,6 +1,4 @@
 "use client"
-// app/auth/page.tsx - FIXED Authentication Page
-
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
