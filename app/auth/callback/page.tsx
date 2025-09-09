@@ -1,5 +1,6 @@
-// app/auth/callback/page.tsx - COMPLETELY FIXED
 "use client"
+// app/auth/callback/page.tsx - COMPLETELY FIXED
+
 
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'

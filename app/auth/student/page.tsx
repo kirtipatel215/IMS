@@ -1,5 +1,6 @@
-// app/auth/student/page.tsx - Student Google Auth
 "use client"
+// app/auth/student/page.tsx - Student Google Auth
+
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
