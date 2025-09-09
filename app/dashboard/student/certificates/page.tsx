@@ -1,5 +1,4 @@
 "use client"
-
 import type React from "react"
 
 import { AuthGuard } from "@/components/auth-guard"

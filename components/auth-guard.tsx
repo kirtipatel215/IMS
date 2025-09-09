@@ -1,4 +1,4 @@
-// components/auth-guard.tsx - Fixed Auth Guard (uses AuthContext)
+
 "use client"
 
 import type React from "react"

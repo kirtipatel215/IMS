@@ -1,5 +1,4 @@
 "use client"
-
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
