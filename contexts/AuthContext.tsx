@@ -1,193 +1,139 @@
-// contexts/AuthContext.tsx - FIXED VERSION (Proper No Session Handling)
+// contexts/AuthContext.tsx - FIXED VERSION
 "use client"
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
-import { 
-  getCurrentUser, 
-  onAuthStateChange, 
-  logout as supabaseLogout,
-  clearUserCache,
-  isSessionValid,
-  type AppUser 
-} from '@/lib/auth-supabase'
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { onAuthStateChange, getCurrentUser, type AppUser } from '@/lib/auth-supabase'
+import { supabase } from '@/lib/supabase'
 
 interface AuthContextType {
   user: AppUser | null
   isLoading: boolean
   isInitialized: boolean
   error: string | null
-  login: () => Promise<void>
-  logout: () => Promise<void>
   refreshUser: () => Promise<void>
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  isLoading: true,
+  isInitialized: false,
+  error: null,
+  refreshUser: async () => {}
+})
+
+export const useAuth = () => {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  
-  // Use refs to prevent stale closures and infinite loops
-  const initializationRef = useRef(false)
-  const authListenerRef = useRef<any>(null)
-  const lastProcessedEmailRef = useRef<string | null>(null)
-  const processingRef = useRef(false)
 
-  // Refresh user data
   const refreshUser = useCallback(async () => {
-    if (processingRef.current) return
-    
     try {
-      processingRef.current = true
       setError(null)
       const currentUser = await getCurrentUser()
       setUser(currentUser)
-      return currentUser
     } catch (err: any) {
       console.error('Error refreshing user:', err)
-      setError(err.message || 'Failed to refresh user data')
+      setError(err.message || 'Failed to refresh user')
       setUser(null)
-      return null
-    } finally {
-      processingRef.current = false
     }
   }, [])
 
-  // Initialize auth state - ONLY ONCE with no dependencies
   useEffect(() => {
-    // Prevent multiple initializations
-    if (initializationRef.current) return
-
-    console.log('Initializing auth state...')
-    initializationRef.current = true
-
     let mounted = true
-    let processingAuthChange = false
+    let unsubscribe: (() => void) | null = null
 
     const initializeAuth = async () => {
       try {
-        // First, check if there's a valid session
-        const sessionValid = await isSessionValid()
-        console.log('Session valid:', sessionValid)
+        console.log('🔄 Initializing AuthContext...')
+        setError(null)
 
-        if (!sessionValid) {
-          console.log('No valid session found, marking as initialized')
-          if (mounted) {
-            setUser(null)
-            setError(null)
+        // Wait for initial session to be ready
+        await new Promise(resolve => {
+          const checkSession = async () => {
+            try {
+              const { data: { session } } = await supabase.auth.getSession()
+              resolve(session)
+            } catch (error) {
+              console.warn('Session check failed, continuing...', error)
+              resolve(null)
+            }
+          }
+          
+          // Give it a moment for the session to be available
+          setTimeout(checkSession, 100)
+        })
+
+        if (!mounted) return
+
+        // Set up auth state listener FIRST
+        console.log('🔗 Setting up auth state listener...')
+        unsubscribe = onAuthStateChange((newUser) => {
+          if (!mounted) return
+          
+          console.log('👤 Auth state changed:', newUser ? `${newUser.email} (${newUser.role})` : 'null')
+          setUser(newUser)
+          setError(null)
+          
+          if (!isInitialized) {
             setIsInitialized(true)
             setIsLoading(false)
           }
-          return
+        })
+
+        // Small delay to ensure listener is set up before getting current user
+        await new Promise(resolve => setTimeout(resolve, 200))
+
+        if (!mounted) return
+
+        // Get initial user state
+        console.log('👤 Getting initial user state...')
+        try {
+          const currentUser = await getCurrentUser()
+          
+          if (mounted) {
+            setUser(currentUser)
+            console.log('✅ Initial user loaded:', currentUser ? `${currentUser.email} (${currentUser.role})` : 'null')
+          }
+        } catch (err: any) {
+          console.error('❌ Error getting initial user:', err)
+          if (mounted) {
+            setError(err.message || 'Failed to initialize authentication')
+          }
         }
 
-        // If session exists, try to get current user
-        const currentUser = await getCurrentUser()
-        console.log('Current user from session:', currentUser?.email || 'none')
-
         if (mounted) {
-          setUser(currentUser)
-          setError(null)
           setIsInitialized(true)
           setIsLoading(false)
+          console.log('✅ AuthContext initialized successfully')
         }
-      } catch (error) {
-        console.error('Error during auth initialization:', error)
+
+      } catch (error: any) {
+        console.error('❌ Auth initialization error:', error)
         if (mounted) {
-          setUser(null)
-          setError('Failed to initialize authentication')
+          setError(error.message || 'Authentication initialization failed')
           setIsInitialized(true)
           setIsLoading(false)
         }
       }
     }
 
-    const handleAuthChange = async (newUser: AppUser | null) => {
-      // Prevent processing if unmounted, already processing, or duplicate
-      if (!mounted || processingAuthChange || processingRef.current) return
-
-      const currentEmail = newUser?.email || null
-      
-      // Skip if we just processed this same user
-      if (lastProcessedEmailRef.current === currentEmail) {
-        console.log('Skipping duplicate auth event for:', currentEmail || 'signed out')
-        return
-      }
-
-      processingAuthChange = true
-      processingRef.current = true
-      lastProcessedEmailRef.current = currentEmail
-
-      console.log('Auth state change processed:', newUser?.email || 'signed out')
-      
-      try {
-        setUser(newUser)
-        setError(null)
-        
-        // Mark as initialized after first auth state change
-        if (!isInitialized) {
-          setIsInitialized(true)
-        }
-        setIsLoading(false)
-      } catch (err) {
-        console.error('Error in auth state change handler:', err)
-        setError('Auth state change failed')
-        setIsLoading(false)
-      } finally {
-        processingAuthChange = false
-        processingRef.current = false
-      }
-    }
-
-    // Start initialization
     initializeAuth()
 
-    // Set up auth listener
-    const { data: authListener } = onAuthStateChange(handleAuthChange)
-    authListenerRef.current = authListener
-
-    // Cleanup function
     return () => {
       mounted = false
-      processingAuthChange = false
-      processingRef.current = false
-      
-      if (authListenerRef.current?.subscription) {
-        console.log('Cleaning up auth listener')
-        authListenerRef.current.subscription.unsubscribe()
-        authListenerRef.current = null
+      if (unsubscribe) {
+        console.log('🔌 Unsubscribing from auth state changes')
+        unsubscribe()
       }
-    }
-  }, []) // NO DEPENDENCIES - run only once
-
-  // Login function
-  const login = useCallback(async () => {
-    throw new Error('Login should be handled through the auth page')
-  }, [])
-
-  // Logout function with proper cleanup
-  const logout = useCallback(async () => {
-    if (processingRef.current) return
-    
-    try {
-      processingRef.current = true
-      setIsLoading(true)
-      setError(null)
-      
-      // Clear cache and sign out
-      clearUserCache()
-      lastProcessedEmailRef.current = null
-      await supabaseLogout()
-      
-      // State will be updated through the auth listener
-    } catch (err: any) {
-      console.error('Logout error:', err)
-      setError(err.message || 'Failed to logout')
-    } finally {
-      processingRef.current = false
-      setIsLoading(false)
     }
   }, [])
 
@@ -196,9 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isLoading,
     isInitialized,
     error,
-    login,
-    logout,
-    refreshUser,
+    refreshUser
   }
 
   return (
@@ -206,12 +150,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
 }
