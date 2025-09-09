@@ -2072,3 +2072,6 @@ const getMockStudentDetails = (studentId: string) => ({
     totalApplications: 5
   }
 })
+
+
+
