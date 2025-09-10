@@ -37,7 +37,11 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  ExternalLink
+  ExternalLink,
+  Search,
+  Filter,
+  DollarSign,
+  CalendarDays
 } from "lucide-react"
 
 // Dialog components
@@ -54,8 +58,9 @@ type NOCRequest = {
   id: number
   company: string
   position: string
-  duration: string
   startDate: string
+  endDate: string
+  stipend?: string
   submittedDate: string
   approvedDate?: string
   status: "approved" | "pending" | "rejected" | string
@@ -100,6 +105,23 @@ function prettyStatus(s?: string) {
   return STATUS_META[k] ?? STATUS_META.unknown
 }
 
+// Calculate duration from start and end dates
+function calculateDuration(startDate: string, endDate: string): string {
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  const diffTime = Math.abs(end.getTime() - start.getTime())
+  const diffMonths = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 30))
+  
+  if (diffMonths === 1) return "1 month"
+  if (diffMonths < 12) return `${diffMonths} months`
+  
+  const years = Math.floor(diffMonths / 12)
+  const remainingMonths = diffMonths % 12
+  
+  if (remainingMonths === 0) return `${years} year${years > 1 ? 's' : ''}`
+  return `${years} year${years > 1 ? 's' : ''} ${remainingMonths} month${remainingMonths > 1 ? 's' : ''}`
+}
+
 // Enhanced Upload Zone Component with optimizations
 function UploadZone({
   onFiles,
@@ -111,7 +133,6 @@ function UploadZone({
   selectedFiles: File[]
 }) {
   const [dragOver, setDragOver] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const validateFile = (file: File): string | null => {
@@ -154,7 +175,6 @@ function UploadZone({
     }
 
     if (validFiles.length > 0) {
-      // Only take the first valid file
       onFiles([validFiles[0]])
     }
   }
@@ -211,15 +231,15 @@ function UploadZone({
             )}
           </div>
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            {busy ? "Processing..." : "Upload Offer Letter"}
+            {busy ? "Processing..." : "Upload Documents (Optional)"}
           </h3>
           <p className="text-sm text-gray-500 mb-4">
             {busy 
               ? "Please wait while we process your file..." 
-              : "Drag and drop your PDF file here, or click to browse"
+              : "Upload offer letter or other supporting documents"
             }
           </p>
-          <p className="text-xs text-gray-400 mb-4">PDF files only, max 10MB</p>
+          <p className="text-xs text-gray-400 mb-4">PDF files only, max 10MB • Optional</p>
           
           <Button
             type="button"
@@ -246,7 +266,7 @@ function UploadZone({
         </div>
       </div>
 
-      {/* Selected Files Preview with validation status */}
+      {/* Selected Files Preview */}
       {selectedFiles.length > 0 && (
         <div className="space-y-2">
           <Label className="text-sm font-medium">Selected Files</Label>
@@ -306,6 +326,7 @@ function NOCCard({ request, onView, onEdit }: {
 }) {
   const meta = prettyStatus(request.status)
   const StatusIcon = meta.icon
+  const duration = calculateDuration(request.startDate, request.endDate)
 
   return (
     <Card 
@@ -342,15 +363,21 @@ function NOCCard({ request, onView, onEdit }: {
           
           <div className="flex flex-wrap gap-2">
             <div className="inline-flex items-center gap-1.5 text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-md">
-              <Clock className="h-3 w-3" />
-              {request.duration}
+              <CalendarDays className="h-3 w-3" />
+              {duration}
             </div>
             <div className="inline-flex items-center gap-1.5 text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md">
               <Calendar className="h-3 w-3" />
               {new Date(request.startDate).toLocaleDateString()}
             </div>
-            {request.documents && request.documents.length > 0 && (
+            {request.stipend && (
               <div className="inline-flex items-center gap-1.5 text-xs bg-green-50 text-green-700 px-2.5 py-1 rounded-md">
+                <DollarSign className="h-3 w-3" />
+                {request.stipend}
+              </div>
+            )}
+            {request.documents && request.documents.length > 0 && (
+              <div className="inline-flex items-center gap-1.5 text-xs bg-gray-50 text-gray-700 px-2.5 py-1 rounded-md">
                 <FileText className="h-3 w-3" />
                 {request.documents.length} Document{request.documents.length > 1 ? 's' : ''}
               </div>
@@ -408,10 +435,13 @@ function EditForm({
 }) {
   const [company, setCompany] = useState(request.company)
   const [position, setPosition] = useState(request.position)
-  const [duration, setDuration] = useState(request.duration)
   const [startDate, setStartDate] = useState(() => 
     (request.startDate || "").slice(0, 10)
   )
+  const [endDate, setEndDate] = useState(() => 
+    (request.endDate || "").slice(0, 10)
+  )
+  const [stipend, setStipend] = useState(request.stipend || "")
   const [description, setDescription] = useState(request.description)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -424,8 +454,9 @@ function EditForm({
       const updates = {
         company,
         position,
-        duration,
         startDate,
+        endDate,
+        stipend,
         description,
       }
       
@@ -478,28 +509,6 @@ function EditForm({
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="edit-duration" className="text-sm font-medium text-gray-700">
-            Duration
-          </Label>
-          <Select
-            value={duration}
-            onValueChange={setDuration}
-            disabled={isDisabled}
-          >
-            <SelectTrigger className="rounded-lg border-gray-300">
-              <SelectValue placeholder="Select duration" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="2 months">2 months</SelectItem>
-              <SelectItem value="3 months">3 months</SelectItem>
-              <SelectItem value="4 months">4 months</SelectItem>
-              <SelectItem value="6 months">6 months</SelectItem>
-              <SelectItem value="12 months">12 months</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        
-        <div className="space-y-2">
           <Label htmlFor="edit-startDate" className="text-sm font-medium text-gray-700">
             Start Date
           </Label>
@@ -508,6 +517,34 @@ function EditForm({
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
+            disabled={isDisabled}
+            className="rounded-lg border-gray-300"
+          />
+        </div>
+        
+        <div className="space-y-2">
+          <Label htmlFor="edit-endDate" className="text-sm font-medium text-gray-700">
+            End Date
+          </Label>
+          <Input
+            id="edit-endDate"
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            disabled={isDisabled}
+            className="rounded-lg border-gray-300"
+          />
+        </div>
+
+        <div className="space-y-2 md:col-span-2">
+          <Label htmlFor="edit-stipend" className="text-sm font-medium text-gray-700">
+            Stipend (Optional)
+          </Label>
+          <Input
+            id="edit-stipend"
+            value={stipend}
+            onChange={(e) => setStipend(e.target.value)}
+            placeholder="e.g., ₹15,000/month or Unpaid"
             disabled={isDisabled}
             className="rounded-lg border-gray-300"
           />
@@ -561,6 +598,9 @@ function EditForm({
 export default function NOCRequests() {
   const [showForm, setShowForm] = useState(false)
   const [nocRequests, setNocRequests] = useState<NOCRequest[]>([])
+  const [filteredRequests, setFilteredRequests] = useState<NOCRequest[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitProgress, setSubmitProgress] = useState("")
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
@@ -583,8 +623,9 @@ export default function NOCRequests() {
           id: r.id,
           company: r.company ?? r.company_name ?? "",
           position: r.position,
-          duration: r.duration,
           startDate: r.start_date ?? r.startDate,
+          endDate: r.end_date ?? r.endDate,
+          stipend: r.stipend,
           submittedDate: r.submitted_date ?? r.submittedDate ?? new Date().toISOString(),
           approvedDate: r.approved_date ?? r.approvedDate,
           status: r.status ?? "pending",
@@ -613,6 +654,27 @@ export default function NOCRequests() {
     loadData()
   }, [])
 
+  // Filter requests based on search and status
+  useEffect(() => {
+    let filtered = nocRequests
+
+    // Filter by search term
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(request => 
+        request.company.toLowerCase().includes(term) ||
+        request.position.toLowerCase().includes(term)
+      )
+    }
+
+    // Filter by status
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(request => request.status === statusFilter)
+    }
+
+    setFilteredRequests(filtered)
+  }, [nocRequests, searchTerm, statusFilter])
+
   // Handle file selection
   const handleFileSelection = useCallback((files: File[]) => {
     setSelectedFiles(files)
@@ -625,360 +687,145 @@ export default function NOCRequests() {
   }, [])
 
   // Submit new request with better error handling
- // Optimized handleSubmit function with better error handling and performance
-// Key optimizations for handleSubmit in your page.tsx
-
-// Replace your existing handleSubmit function with this optimized version
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault()
-  e.stopPropagation()
-  
-  // Immediate validations
-  if (!currentUser) {
-    toast({
-      title: "Authentication Error",
-      description: "Please log in and try again.",
-      variant: "destructive",
-    })
-    return
-  }
-
-  if (selectedFiles.length === 0) {
-    toast({
-      title: "Missing Document",
-      description: "Please upload a PDF file first.",
-      variant: "destructive",
-    })
-    return
-  }
-
-  const file = selectedFiles[0]
-  
-  // Pre-flight checks
-  if (file.size > 10 * 1024 * 1024) {
-    toast({
-      title: "File Too Large",
-      description: "File must be under 10MB. Please compress your PDF.",
-      variant: "destructive",
-    })
-    return
-  }
-
-  if (file.type !== 'application/pdf') {
-    toast({
-      title: "Invalid File Type", 
-      description: "Only PDF files are allowed.",
-      variant: "destructive",
-    })
-    return
-  }
-
-  setIsSubmitting(true)
-  const startTime = Date.now()
-  
-  const form = e.target as HTMLFormElement
-  const formData = new FormData(form)
-
-  try {
-    // Validate form data
-    const requestData = {
-      studentId: currentUser.id,
-      studentName: currentUser.name,
-      studentEmail: currentUser.email,
-      company: (formData.get("company") as string)?.trim(),
-      position: (formData.get("position") as string)?.trim(),
-      duration: formData.get("duration") as string,
-      startDate: formData.get("startDate") as string,
-      description: (formData.get("description") as string)?.trim(),
-      documents: [],
-    }
-
-    if (!requestData.company || !requestData.position || !requestData.description) {
-      throw new Error("Please fill in all required fields")
-    }
-
-    // Upload with progress feedback
-    setSubmitProgress(`⚡ Uploading ${file.name}...`)
-    console.log(`🚀 Starting upload: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)`)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
     
-    const uploadResult = await uploadFile(file, 'documents')
-    
-    if (!uploadResult.success || !uploadResult.fileUrl) {
-      throw new Error(uploadResult.error || 'File upload failed')
-    }
-
-    const uploadTime = Date.now() - startTime
-    console.log(`⚡ Upload completed in ${uploadTime}ms`)
-    
-    requestData.documents = [uploadResult.fileUrl]
-
-    // Create NOC request
-    setSubmitProgress("📝 Creating request...")
-    
-    const newRequest = await createNOCRequest(requestData)
-
-    if (!newRequest?.id) {
-      throw new Error('Request creation failed')
-    }
-
-    const totalTime = Date.now() - startTime
-    console.log(`✅ Total time: ${totalTime}ms`)
-
-    // Optimistic UI update
-    const normalized: NOCRequest = {
-      id: newRequest.id,
-      company: newRequest.company_name || requestData.company,
-      position: newRequest.position,
-      duration: newRequest.duration,
-      startDate: newRequest.start_date || newRequest.startDate,
-      submittedDate: newRequest.submitted_date || new Date().toISOString(),
-      approvedDate: newRequest.approved_date,
-      status: newRequest.status || "pending",
-      description: newRequest.description || "",
-      feedback: newRequest.feedback || "",
-      documents: [uploadResult.fileUrl],
-    }
-
-    setNocRequests(prev => [normalized, ...prev])
-    resetForm()
-    form.reset()
-    
-    toast({ 
-      title: "✅ Success!", 
-      description: `Request submitted in ${(totalTime/1000).toFixed(1)}s. Now under review.`,
-    })
-
-  } catch (error: any) {
-    const totalTime = Date.now() - startTime
-    console.error(`❌ Failed after ${totalTime}ms:`, error)
-    
-    let errorMessage = "Submission failed. Please try again."
-    const errorMsg = (error.message || "").toLowerCase()
-    
-    if (errorMsg.includes('timeout')) {
-      errorMessage = "⏱️ Upload timeout. Try with a smaller file or better internet connection."
-    } else if (errorMsg.includes('network')) {
-      errorMessage = "🌐 Network error. Please check your connection and try again."
-    } else if (errorMsg.includes('size') || errorMsg.includes('large')) {
-      errorMessage = "📄 File too large. Please compress your PDF and try again."
-    }
-    
-    toast({
-      title: "Submission Failed",
-      description: errorMessage,
-      variant: "destructive",
-    })
-    
-  } finally {
-    setIsSubmitting(false)
-    setSubmitProgress("")
-  }
-}
-
-
-// Enhanced UploadZone with instant validation
-function UploadZone({
-  onFiles,
-  busy,
-  selectedFiles
-}: {
-  onFiles: (files: File[]) => void
-  busy?: boolean
-  selectedFiles: File[]
-}) {
-  const [dragOver, setDragOver] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const validateFileInstantly = (file: File): string | null => {
-    if (file.type !== "application/pdf") {
-      return "Only PDF files are allowed"
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      return "File must be under 10MB"
-    }
-    if (file.size < 1024) {
-      return "File too small - may be corrupted"
-    }
-    return null
-  }
-
-  const processFile = (file: File) => {
-    const error = validateFileInstantly(file)
-    if (error) {
+    // Immediate validations
+    if (!currentUser) {
       toast({
-        title: "❌ Invalid File",
-        description: error,
-        variant: "destructive"
+        title: "Authentication Error",
+        description: "Please log in and try again.",
+        variant: "destructive",
       })
       return
     }
-    
-    // File is valid
-    onFiles([file])
-    toast({
-      title: "✅ File Ready", 
-      description: `${file.name} (${(file.size/1024/1024).toFixed(1)}MB) ready for upload`,
-    })
-  }
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragOver(false)
+    setIsSubmitting(true)
+    const startTime = Date.now()
     
-    if (busy) return
-    
-    const files = Array.from(e.dataTransfer.files || [])
-    if (files.length > 0) {
-      processFile(files[0]) // Only take first file
+    const form = e.target as HTMLFormElement
+    const formData = new FormData(form)
+
+    try {
+      // Validate form data
+      const requestData = {
+        studentId: currentUser.id,
+        studentName: currentUser.name,
+        studentEmail: currentUser.email,
+        company: (formData.get("company") as string)?.trim(),
+        position: (formData.get("position") as string)?.trim(),
+        startDate: formData.get("startDate") as string,
+        endDate: formData.get("endDate") as string,
+        stipend: (formData.get("stipend") as string)?.trim() || "",
+        description: (formData.get("description") as string)?.trim(),
+        documents: [],
+      }
+
+      if (!requestData.company || !requestData.position || !requestData.description || !requestData.startDate || !requestData.endDate) {
+        throw new Error("Please fill in all required fields")
+      }
+
+      // Validate dates
+      const startDate = new Date(requestData.startDate)
+      const endDate = new Date(requestData.endDate)
+      if (endDate <= startDate) {
+        throw new Error("End date must be after start date")
+      }
+
+      // Handle optional file upload
+      let fileUrl = null
+      if (selectedFiles.length > 0) {
+        const file = selectedFiles[0]
+        
+        // Pre-flight checks for file
+        if (file.size > 10 * 1024 * 1024) {
+          throw new Error("File must be under 10MB. Please compress your PDF.")
+        }
+
+        if (file.type !== 'application/pdf') {
+          throw new Error("Only PDF files are allowed.")
+        }
+
+        setSubmitProgress(`⚡ Uploading ${file.name}...`)
+        console.log(`🚀 Starting upload: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)`)
+        
+        const uploadResult = await uploadFile(file, 'documents')
+        
+        if (!uploadResult.success || !uploadResult.fileUrl) {
+          throw new Error(uploadResult.error || 'File upload failed')
+        }
+
+        fileUrl = uploadResult.fileUrl
+        requestData.documents = [fileUrl]
+      }
+
+      // Create NOC request
+      setSubmitProgress("📝 Creating request...")
+      
+      const newRequest = await createNOCRequest(requestData)
+
+      if (!newRequest?.id) {
+        throw new Error('Request creation failed')
+      }
+
+      const totalTime = Date.now() - startTime
+      console.log(`✅ Total time: ${totalTime}ms`)
+
+      // Optimistic UI update
+      const normalized: NOCRequest = {
+        id: newRequest.id,
+        company: newRequest.company_name || requestData.company,
+        position: newRequest.position,
+        startDate: newRequest.start_date || newRequest.startDate || requestData.startDate,
+        endDate: newRequest.end_date || newRequest.endDate || requestData.endDate,
+        stipend: newRequest.stipend || requestData.stipend,
+        submittedDate: newRequest.submitted_date || new Date().toISOString(),
+        approvedDate: newRequest.approved_date,
+        status: newRequest.status || "pending",
+        description: newRequest.description || "",
+        feedback: newRequest.feedback || "",
+        documents: fileUrl ? [fileUrl] : [],
+      }
+
+      setNocRequests(prev => [normalized, ...prev])
+      resetForm()
+      form.reset()
+      
+      toast({ 
+        title: "✅ Success!", 
+        description: `Request submitted in ${(totalTime/1000).toFixed(1)}s. Now under review.`,
+      })
+
+    } catch (error: any) {
+      const totalTime = Date.now() - startTime
+      console.error(`❌ Failed after ${totalTime}ms:`, error)
+      
+      let errorMessage = "Submission failed. Please try again."
+      const errorMsg = (error.message || "").toLowerCase()
+      
+      if (errorMsg.includes('timeout')) {
+        errorMessage = "⏱️ Upload timeout. Try with a smaller file or better internet connection."
+      } else if (errorMsg.includes('network')) {
+        errorMessage = "🌐 Network error. Please check your connection and try again."
+      } else if (errorMsg.includes('size') || errorMsg.includes('large')) {
+        errorMessage = "📄 File too large. Please compress your PDF and try again."
+      } else if (errorMsg.includes('date')) {
+        errorMessage = "📅 Please check your start and end dates."
+      }
+      
+      toast({
+        title: "Submission Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+      
+    } finally {
+      setIsSubmitting(false)
+      setSubmitProgress("")
     }
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || busy) return
-    
-    processFile(file)
-  }
-
-  const triggerFileSelect = () => {
-    if (busy) return
-    fileInputRef.current?.click()
-  }
-
-  return (
-    <div className="space-y-4">
-      <div
-        onDragOver={(e) => {
-          e.preventDefault()
-          if (!busy) setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-        className={cn(
-          "relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 cursor-pointer",
-          dragOver && !busy
-            ? "border-blue-400 bg-blue-50 scale-[1.02]" 
-            : "border-gray-300 hover:border-gray-400",
-          busy && "opacity-50 cursor-not-allowed"
-        )}
-        onClick={triggerFileSelect}
-      >
-        <div className="text-center">
-          <div className={cn(
-            "mx-auto h-12 w-12 rounded-full flex items-center justify-center mb-4 transition-all",
-            dragOver && !busy ? "bg-blue-100 scale-110" : "bg-gray-100",
-            busy && "animate-pulse"
-          )}>
-            {busy ? (
-              <div className="h-6 w-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Upload className={cn(
-                "h-6 w-6 transition-colors",
-                dragOver ? "text-blue-600" : "text-gray-500"
-              )} />
-            )}
-          </div>
-          
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
-            {busy ? "⚡ Processing..." : dragOver ? "📁 Drop your PDF here" : "📤 Upload Offer Letter"}
-          </h3>
-          
-          <p className="text-sm text-gray-500 mb-4">
-            {busy 
-              ? "File processing in progress..." 
-              : "PDF files only • Max 10MB • Instant validation"
-            }
-          </p>
-          
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation()
-              triggerFileSelect()
-            }}
-            className={cn(
-              "rounded-lg transition-all",
-              dragOver && "border-blue-400 text-blue-600"
-            )}
-          >
-            <Paperclip className="h-4 w-4 mr-2" />
-            {busy ? "Processing..." : "Choose PDF File"}
-          </Button>
-          
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf"
-            onChange={handleFileSelect}
-            className="hidden"
-            disabled={busy}
-          />
-        </div>
-      </div>
-
-      {/* Selected Files Preview with enhanced validation */}
-      {selectedFiles.length > 0 && (
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">Selected File</Label>
-          {selectedFiles.map((file, index) => {
-            const error = validateFileInstantly(file)
-            const isValid = !error
-            const sizeStr = (file.size / (1024 * 1024)).toFixed(1)
-            
-            return (
-              <div key={index} className={cn(
-                "flex items-center justify-between p-3 border rounded-lg transition-all",
-                isValid 
-                  ? "bg-green-50 border-green-200 shadow-sm" 
-                  : "bg-red-50 border-red-200"
-              )}>
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    "h-8 w-8 rounded flex items-center justify-center",
-                    isValid ? "bg-green-100" : "bg-red-100"
-                  )}>
-                    {isValid ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <AlertCircle className="h-4 w-4 text-red-600" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{file.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {sizeStr} MB PDF
-                      {isValid ? (
-                        <span className="text-green-600 ml-2">✓ Ready to upload</span>
-                      ) : (
-                        <span className="text-red-600 ml-2">⚠ {error}</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onFiles([])
-                  }}
-                  disabled={busy}
-                  className="text-gray-500 hover:text-red-600"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
   // Open document viewer
   const openDocument = async (documentUrl: string) => {
     try {
@@ -1011,6 +858,35 @@ function UploadZone({
               <Plus className="mr-2 h-4 w-4" />
               New NOC Request
             </Button>
+          </div>
+
+          {/* Search and Filter Section */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search by company name or position..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 rounded-lg border-gray-300"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[140px] rounded-lg border-gray-300">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Stats Cards */}
@@ -1109,24 +985,6 @@ function UploadZone({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="duration" className="text-sm font-medium text-gray-700">
-                        Duration *
-                      </Label>
-                      <Select name="duration" required>
-                        <SelectTrigger className="rounded-lg border-gray-300 focus:border-blue-500">
-                          <SelectValue placeholder="Select internship duration" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="2 months">2 months</SelectItem>
-                          <SelectItem value="3 months">3 months</SelectItem>
-                          <SelectItem value="4 months">4 months</SelectItem>
-                          <SelectItem value="6 months">6 months</SelectItem>
-                          <SelectItem value="12 months">12 months</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
                       <Label htmlFor="startDate" className="text-sm font-medium text-gray-700">
                         Start Date *
                       </Label>
@@ -1138,6 +996,32 @@ function UploadZone({
                         className="rounded-lg border-gray-300 focus:border-blue-500"
                       />
                     </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="endDate" className="text-sm font-medium text-gray-700">
+                        End Date *
+                      </Label>
+                      <Input 
+                        id="endDate" 
+                        type="date" 
+                        name="endDate" 
+                        required 
+                        className="rounded-lg border-gray-300 focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="stipend" className="text-sm font-medium text-gray-700">
+                      Stipend (Optional)
+                    </Label>
+                    <Input 
+                      id="stipend" 
+                      name="stipend" 
+                      placeholder="e.g., ₹15,000/month, $500/month, or Unpaid" 
+                      className="rounded-lg border-gray-300 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500">Leave blank if unpaid or stipend amount is not disclosed</p>
                   </div>
 
                   <div className="space-y-2">
@@ -1156,19 +1040,22 @@ function UploadZone({
 
                   <div className="space-y-3">
                     <Label className="text-sm font-medium text-gray-700">
-                      Offer Letter (PDF) *
+                      Supporting Documents (Optional)
                     </Label>
                     <UploadZone 
                       onFiles={handleFileSelection} 
                       busy={isSubmitting}
                       selectedFiles={selectedFiles}
                     />
+                    <p className="text-xs text-gray-500">
+                      Upload offer letter or other supporting documents. This is optional but recommended for faster processing.
+                    </p>
                   </div>
 
                   <div className="flex gap-3 pt-4 border-t">
                     <Button 
                       type="submit" 
-                      disabled={isSubmitting || selectedFiles.length === 0} 
+                      disabled={isSubmitting} 
                       className="rounded-lg px-6 py-2.5 bg-blue-600 hover:bg-blue-700 transition-colors min-w-[160px]"
                     >
                       {isSubmitting ? (
@@ -1201,11 +1088,32 @@ function UploadZone({
 
           {/* NOC Requests List */}
           <div className="space-y-6">
-            {nocRequests.length > 0 ? (
+            {filteredRequests.length > 0 ? (
               <>
-                <h2 className="text-xl font-semibold text-gray-900">Your NOC Requests</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {searchTerm || statusFilter !== "all" 
+                      ? `Filtered NOC Requests (${filteredRequests.length})` 
+                      : "Your NOC Requests"
+                    }
+                  </h2>
+                  {(searchTerm || statusFilter !== "all") && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSearchTerm("")
+                        setStatusFilter("all")
+                      }}
+                      className="rounded-lg"
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      Clear Filters
+                    </Button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {nocRequests.map((request) => (
+                  {filteredRequests.map((request) => (
                     <NOCCard
                       key={request.id}
                       request={request}
@@ -1215,7 +1123,32 @@ function UploadZone({
                   ))}
                 </div>
               </>
+            ) : nocRequests.length > 0 ? (
+              // Show "No results" when filtered but has requests
+              <Card className="border-0 shadow-sm bg-gray-50">
+                <CardContent className="p-12 text-center">
+                  <div className="mx-auto h-16 w-16 rounded-full bg-gray-200 flex items-center justify-center mb-6">
+                    <Search className="h-8 w-8 text-gray-500" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No matching requests</h3>
+                  <p className="text-gray-600 mb-6">
+                    No NOC requests match your current search criteria. Try adjusting your filters.
+                  </p>
+                  <Button 
+                    variant="outline"
+                    onClick={() => {
+                      setSearchTerm("")
+                      setStatusFilter("all")
+                    }}
+                    className="rounded-lg px-6 py-2.5"
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Clear All Filters
+                  </Button>
+                </CardContent>
+              </Card>
             ) : (
+              // Show "No requests" when no requests at all
               <Card className="border-0 shadow-sm bg-gray-50">
                 <CardContent className="p-12 text-center">
                   <div className="mx-auto h-16 w-16 rounded-full bg-gray-200 flex items-center justify-center mb-6">
@@ -1283,10 +1216,10 @@ function UploadZone({
                   
                   <div className="p-4 rounded-lg bg-indigo-50 border border-indigo-200">
                     <div className="flex items-center gap-2 mb-2">
-                      <Clock className="h-4 w-4 text-indigo-600" />
+                      <CalendarDays className="h-4 w-4 text-indigo-600" />
                       <p className="text-sm font-medium text-indigo-900">Duration</p>
                     </div>
-                    <p className="text-indigo-800">{viewing.duration}</p>
+                    <p className="text-indigo-800">{calculateDuration(viewing.startDate, viewing.endDate)}</p>
                   </div>
                   
                   <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
@@ -1296,6 +1229,24 @@ function UploadZone({
                     </div>
                     <p className="text-blue-800">{new Date(viewing.startDate).toLocaleDateString()}</p>
                   </div>
+                  
+                  <div className="p-4 rounded-lg bg-green-50 border border-green-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calendar className="h-4 w-4 text-green-600" />
+                      <p className="text-sm font-medium text-green-900">End Date</p>
+                    </div>
+                    <p className="text-green-800">{new Date(viewing.endDate).toLocaleDateString()}</p>
+                  </div>
+
+                  {viewing.stipend && (
+                    <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <DollarSign className="h-4 w-4 text-emerald-600" />
+                        <p className="text-sm font-medium text-emerald-900">Stipend</p>
+                      </div>
+                      <p className="text-emerald-800">{viewing.stipend}</p>
+                    </div>
+                  )}
                   
                   {viewing.approvedDate && (
                     <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
